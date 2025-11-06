@@ -2,6 +2,9 @@
 
 ## Add BLE command and bluetooth console support
 
+- The response from BLE/bluetooth command will output to the cdc console like the hid command input
+- teh response back to the command source depends on the commands
+
 ## WIFI Web Server 
 
 ### Connection
