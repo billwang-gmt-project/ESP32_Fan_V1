@@ -3,6 +3,23 @@
 """
 ESP32-S3 整合測試腳本 - 同時測試 CDC、HID 和 BLE 介面
 使用 pywinusb 進行 HID 通訊，pyserial 進行 CDC 通訊，bleak 進行 BLE 通訊
+
+回應路由規則（v2.2）
+-------------------
+根據命令類型，裝置會將回應路由到不同介面：
+
+1. SCPI 命令（*IDN?, *RST 等）：
+   - CDC 來源 → CDC 回應
+   - HID 來源 → HID 回應
+   - BLE 來源 → BLE 回應
+
+2. 一般命令（HELP, INFO, STATUS 等）：
+   - 所有來源 → 統一回應到 CDC（便於監控除錯）
+   - HID/BLE 不會收到這些命令的回應
+
+測試時的預期行為：
+- 測試 SCPI 命令：各介面應收到各自的回應
+- 測試一般命令：只有 CDC 會收到回應，HID/BLE 無回應是正常的
 """
 
 import sys
@@ -317,6 +334,10 @@ def find_ble_device(name=BLE_DEVICE_NAME, timeout=8.0):
 # BLE 通知處理器（全域，只設置一次）
 ble_notification_handler = None
 
+def is_scpi_command(cmd):
+    """檢查命令是否為 SCPI 命令（以 * 開頭）"""
+    return cmd.strip().startswith('*')
+
 def ble_handle_notification(sender, data: bytearray):
     """BLE 通知處理器"""
     with ble_data_lock:
@@ -408,9 +429,17 @@ def test_ble_command(client, cmd, timeout_sec=2.0):
         return None
 
 def compare_responses(cdc_resp=None, hid_resp=None, ble_resp=None, cmd=""):
-    """比較 CDC、HID 和 BLE 的回應"""
+    """比較 CDC、HID 和 BLE 的回應（考慮新的路由規則）"""
     print(f"\n{'='*60}")
     print(f"命令: {cmd}")
+
+    # 判斷命令類型
+    is_scpi = is_scpi_command(cmd)
+    if is_scpi:
+        print(f"類型: SCPI 命令（各介面獨立回應）")
+    else:
+        print(f"類型: 一般命令（統一回應到 CDC）")
+
     print(f"{'='*60}")
 
     # 顯示各介面回應
@@ -432,7 +461,10 @@ def compare_responses(cdc_resp=None, hid_resp=None, ble_resp=None, cmd=""):
                 print(f"  {line}")
             responses_dict['HID'] = set(line.strip() for line in hid_resp if line.strip())
         else:
-            print("  ⚠️  無回應")
+            if is_scpi:
+                print("  ⚠️  無回應（異常：SCPI 命令應該有回應）")
+            else:
+                print("  ⚠️  無回應（預期：一般命令只回應到 CDC）")
 
     if ble_resp is not None:
         print("\n📡 BLE 回應:")
@@ -441,24 +473,46 @@ def compare_responses(cdc_resp=None, hid_resp=None, ble_resp=None, cmd=""):
                 print(f"  {line}")
             responses_dict['BLE'] = set(line.strip() for line in ble_resp if line.strip())
         else:
-            print("  ⚠️  無回應")
+            if is_scpi:
+                print("  ⚠️  無回應（異常：SCPI 命令應該有回應）")
+            else:
+                print("  ⚠️  無回應（預期：一般命令只回應到 CDC）")
 
-    # 比較結果
-    if len(responses_dict) >= 2:
-        response_sets = list(responses_dict.values())
-        all_same = all(s == response_sets[0] for s in response_sets)
+    # 比較結果（考慮路由規則）
+    if is_scpi:
+        # SCPI 命令：各介面應該有自己的回應，內容應該一致
+        if len(responses_dict) >= 2:
+            response_sets = list(responses_dict.values())
+            all_same = all(s == response_sets[0] for s in response_sets)
 
-        if all_same:
-            print("\n✅ 所有介面回應一致")
-        else:
-            print("\n⚠️  介面回應不同")
-            # 顯示差異
-            for name1, set1 in responses_dict.items():
-                for name2, set2 in responses_dict.items():
-                    if name1 < name2:  # 避免重複比較
-                        diff = set1 - set2
-                        if diff:
-                            print(f"  只有 {name1} 有: {diff}")
+            if all_same:
+                print("\n✅ SCPI 命令：所有介面回應一致")
+            else:
+                print("\n⚠️  SCPI 命令：介面回應不同（可能異常）")
+                # 顯示差異
+                for name1, set1 in responses_dict.items():
+                    for name2, set2 in responses_dict.items():
+                        if name1 < name2:  # 避免重複比較
+                            diff = set1 - set2
+                            if diff:
+                                print(f"  只有 {name1} 有: {diff}")
+    else:
+        # 一般命令：只有 CDC 應該有回應
+        if 'CDC' in responses_dict and responses_dict['CDC']:
+            has_hid = 'HID' in responses_dict and responses_dict['HID']
+            has_ble = 'BLE' in responses_dict and responses_dict['BLE']
+
+            if not has_hid and not has_ble:
+                print("\n✅ 一般命令：回應路由正確（只有 CDC 回應）")
+            else:
+                unexpected = []
+                if has_hid:
+                    unexpected.append("HID")
+                if has_ble:
+                    unexpected.append("BLE")
+                print(f"\n⚠️  一般命令：{', '.join(unexpected)} 不應該有回應（異常）")
+        elif 'CDC' not in responses_dict or not responses_dict['CDC']:
+            print("\n⚠️  一般命令：CDC 無回應（異常）")
 
 def test_cdc_only(ser):
     """僅測試 CDC 介面"""
@@ -543,7 +597,7 @@ def test_ble_only(ble_client):
 def test_all_interfaces(ser=None, hid_device=None, out_report=None, ble_client=None):
     """測試所有可用介面的多通道回應"""
     print("\n" + "=" * 60)
-    print("測試多通道回應功能")
+    print("測試多通道回應功能（v2.2 路由規則）")
     print("=" * 60)
 
     # 統計可用介面
@@ -556,6 +610,11 @@ def test_all_interfaces(ser=None, hid_device=None, out_report=None, ble_client=N
         available.append("BLE")
 
     print(f"可用介面: {', '.join(available)}")
+    print()
+    print("測試說明：")
+    print("  - SCPI 命令（*IDN?）: 各介面獨立回應")
+    print("  - 一般命令（HELP/INFO/STATUS）: 只有 CDC 回應")
+    print()
 
     # 如果有 BLE 客戶端，設置通知（只訂閱一次）
     ble_notifications_setup = False
