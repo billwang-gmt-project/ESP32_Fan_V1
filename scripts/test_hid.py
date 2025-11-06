@@ -4,6 +4,20 @@
 ESP32-S3 USB HID 測試工具 - 64 位元組，無 Report ID
 使用 pywinusb 庫
 支援命令解析器測試（*IDN?, HELP, INFO 等）和 0xA1 協定
+
+重要：回應路由規則（v2.2）
+----------------------------
+根據命令類型，裝置會將回應路由到不同介面：
+
+1. SCPI 命令（*IDN?, *RST 等）：
+   - 回應到命令來源介面（HID → HID 回應）
+   - 測試這些命令時會收到 HID 回應
+
+2. 一般命令（HELP, INFO, STATUS 等）：
+   - 統一回應到 CDC 介面（便於監控除錯）
+   - 測試這些命令時不會收到 HID 回應（需查看 CDC 輸出）
+
+這是設計行為，不是 bug！
 """
 
 import pywinusb.hid as hid
@@ -254,17 +268,23 @@ def test_commands(use_0xA1=False):
     print("=" * 60)
     print(f"測試命令解析器 ({protocol_name})")
     print("=" * 60)
+    print("\n⚠️  重要提示：")
+    print("  - SCPI 命令（*IDN? 等）→ HID 會收到回應")
+    print("  - 一般命令（HELP, INFO 等）→ 只有 CDC 會收到回應")
+    print("  - 如果測試一般命令時無回應，請查看 CDC 序列埠輸出\n")
 
-    # 測試命令列表
+    # 測試命令列表（區分 SCPI 和一般命令）
     test_cmds = [
-        ("*IDN?", "SCPI 識別命令"),
-        ("HELP", "顯示說明"),
-        ("INFO", "設備資訊"),
-        ("STATUS", "系統狀態"),
+        ("*IDN?", "SCPI 識別命令", True),   # SCPI 命令 - 會有 HID 回應
+        ("HELP", "顯示說明", False),         # 一般命令 - 只有 CDC 回應
+        ("INFO", "設備資訊", False),         # 一般命令 - 只有 CDC 回應
+        ("STATUS", "系統狀態", False),       # 一般命令 - 只有 CDC 回應
     ]
 
-    for cmd, description in test_cmds:
+    for cmd, description, expects_hid_response in test_cmds:
         print(f"\n>>> 測試: {cmd} ({description})")
+        if not expects_hid_response:
+            print("    ⚠️  此命令只會回應到 CDC，HID 不會收到回應")
         print("-" * 60)
 
         if send_command(device, cmd, use_0xA1_protocol=use_0xA1):
@@ -273,10 +293,13 @@ def test_commands(use_0xA1=False):
             response = wait_for_response(timeout=2.0, use_0xA1_protocol=use_0xA1)
 
             if response:
-                print(f"<<< 回應:")
+                print(f"<<< HID 回應:")
                 print(response)
             else:
-                print("<<< 未收到回應")
+                if expects_hid_response:
+                    print("<<< 未收到 HID 回應（異常）")
+                else:
+                    print("<<< 未收到 HID 回應（預期行為，回應已發送到 CDC）")
 
         time.sleep(0.5)
 
@@ -339,6 +362,10 @@ def interactive_mode(use_0xA1=False):
     print("  hex: <資料>     - 發送十六進位資料（例: hex: 12 34 56）")
     print("  protocol        - 切換協定")
     print("  輸入 'q' 離開")
+    print()
+    print("⚠️  回應路由提示:")
+    print("  - SCPI 命令（*開頭）→ HID 會收到回應")
+    print("  - 一般命令      → 只有 CDC 會收到回應")
     print()
 
     print("搜尋 HID 設備...")
@@ -440,9 +467,12 @@ def main():
         print(f"  {sys.argv[0]} receive              - 接收資料模式")
         print()
         print("範例:")
-        print(f"  {sys.argv[0]} cmd *IDN?            - 發送識別命令")
+        print(f"  {sys.argv[0]} cmd *IDN?            - 發送識別命令（SCPI，會有 HID 回應）")
         print(f"  {sys.argv[0]} test                 - 自動測試所有命令")
         print(f"  {sys.argv[0]} interactive          - 互動模式")
+        print()
+        print("⚠️  注意：一般命令（HELP, INFO 等）只會回應到 CDC，不會回應到 HID")
+        print("   SCPI 命令（*IDN? 等）會回應到 HID")
         return
 
     command = sys.argv[1].lower()

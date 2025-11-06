@@ -15,6 +15,21 @@ Dependencies:
  - bleak (pip install bleak)
 
 Works on Windows/macOS/Linux (requires a working BLE adapter and python3.8+).
+
+Response Routing (v2.2):
+------------------------
+Commands sent via BLE will have different response behavior:
+
+1. SCPI commands (*IDN?, *RST, etc.):
+   - Responses are sent back via BLE TX characteristic (notify)
+   - You will see the response in this client
+
+2. General commands (HELP, INFO, STATUS, etc.):
+   - Responses are sent to CDC interface only (for centralized monitoring)
+   - You will NOT see responses in this BLE client
+   - Check the device's CDC serial output to see responses
+
+This is by design for better debugging/monitoring!
 """
 
 import argparse
@@ -83,6 +98,11 @@ async def run(address=None, name=None):
 
         await client.start_notify(CHAR_UUID_TX, handle_notification)
         print("Subscribed to TX notifications. Type lines and press Enter to send to RX characteristic.")
+        print()
+        print("⚠️  Response Routing Info:")
+        print("   - SCPI commands (*IDN?, etc.) → Response via BLE")
+        print("   - General commands (HELP, INFO, etc.) → Response via CDC only")
+        print()
 
         loop = asyncio.get_event_loop()
         try:
