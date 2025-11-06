@@ -1,17 +1,24 @@
-# HID 命令協定規格
+# 多介面命令協定規格
 
 ## 概述
 
-本文件定義了 ESP32-S3 USB HID 介面的命令協定格式，支援命令封包與原始資料的區分處理。
+本文件定義了 ESP32-S3 多介面裝置的命令協定格式，涵蓋三種通訊介面：
+- **USB CDC (Serial)**：純文字命令介面
+- **USB HID (64-byte)**：雙協定命令介面（0xA1 結構化 / 純文字）
+- **BLE GATT (Wireless)**：無線文字命令介面
+
+所有介面使用統一的命令集和解析器，支援命令封包與原始資料的區分處理。
 
 ## 快速參考
 
 ### 關鍵特性
 
+✅ **多介面支援**：USB CDC、USB HID、BLE GATT 三種通訊介面
 ✅ **無字元回顯**：CDC 輸入時不會顯示輸入字元，只顯示命令回應
-✅ **智慧路由**：CDC 命令僅回應到 CDC，HID 命令同時回應到 CDC 和 HID
+✅ **智慧路由**：CDC 命令僅回應到 CDC，HID/BLE 命令同時回應到來源介面和 CDC
 ✅ **命令封包識別**：HID 封包以 `0xA1` 開頭表示命令，否則為原始資料
 ✅ **自動分割**：長回應自動分割為多個 64-byte HID 封包
+✅ **非同步架構**：HID 和 BLE 使用 FreeRTOS Task + Queue，避免 reentrant 問題
 ✅ **執行緒安全**：所有介面存取都有 FreeRTOS mutex 保護
 
 ### 命令格式對照
@@ -20,6 +27,7 @@
 |------|---------|---------|
 | **CDC** | `HELP\n` | `可用命令:\n  *IDN?...\n` |
 | **HID** | `[0xA1][0x05][0x00]HELP\n[...]` | `[0xA1][len][0x00]可用命令:...` |
+| **BLE** | `HELP\n` (Write to RX) | `可用命令:...` (Notify from TX) |
 
 ### 回應路由規則
 
@@ -29,7 +37,18 @@ CDC 來源 → parser.feedChar(..., cdc_response, ...)
 
 HID 來源 → parser.processCommand(..., multi_response, ...)
          → 回應：CDC + HID
+
+BLE 來源 → parser.processCommand(..., multi_response, ...)
+         → 回應：CDC + BLE
 ```
+
+**多通道回應表：**
+
+| 命令來源 | CDC 回應 | HID 回應 | BLE 回應 | 說明 |
+|---------|---------|---------|---------|------|
+| CDC     | ✓       | ✗       | ✗       | 僅回應到命令來源 |
+| HID     | ✓       | ✓       | ✗       | 雙通道：來源 + CDC |
+| BLE     | ✓       | ✗       | ✓       | 雙通道：來源 + CDC |
 
 ## HID 封包類型
 
@@ -117,51 +136,227 @@ response_text
 - 無 header，純文字輸出
 - 直接輸出到 USB Serial (USBSerial)
 
+## BLE GATT 協定
+
+### 概述
+
+ESP32-S3 提供 BLE (Bluetooth Low Energy) GATT 介面作為無線命令通道。
+
+**重要限制：**
+- ESP32-S3 **僅支援 BLE**（Bluetooth Low Energy）
+- **不支援** Classic Bluetooth (BR/EDR)
+- **不支援** Bluetooth Serial Port Profile (SPP)
+
+### GATT 服務架構
+
+**Service 定義：**
+```
+Service UUID:        4fafc201-1fb5-459e-8fcc-c5c9c331914b
+  └─ TX Characteristic (Notify)
+     UUID:           beb5483e-36e1-4688-b7f5-ea07361b26a9
+     Properties:     Read, Notify
+     用途:           裝置 → 客戶端（回應資料）
+
+  └─ RX Characteristic (Write)
+     UUID:           beb5483e-36e1-4688-b7f5-ea07361b26a8
+     Properties:     Write, Write Without Response
+     用途:           客戶端 → 裝置（命令輸入）
+```
+
+**裝置名稱：** `ESP32_S3_Console`
+
+### 命令發送格式
+
+**透過 RX Characteristic 發送命令：**
+
+**格式：**
+```
+command_string\n
+```
+
+**特性：**
+- 純文字命令，無 header
+- 必須以換行符結尾（`\n`）
+- 最大長度：255 bytes（受 BLECommandPacket 限制）
+- 使用 Write 或 Write Without Response 皆可
+
+**範例（使用 Python bleak）：**
+```python
+import asyncio
+from bleak import BleakClient
+
+RX_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+async def send_command(address, command):
+    async with BleakClient(address) as client:
+        # 發送命令（必須加換行符）
+        await client.write_gatt_char(RX_UUID, f"{command}\n".encode())
+```
+
+### 回應接收格式
+
+**透過 TX Characteristic 接收回應：**
+
+**格式：**
+```
+response_text
+```
+
+**特性：**
+- 純文字回應，無 header
+- 透過 BLE Notify 機制推送
+- 長回應可能分割為多個 notification
+- 最大單次 notification：512 bytes（取決於 BLE MTU）
+
+**範例（使用 Python bleak）：**
+```python
+TX_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a9"
+
+def notification_handler(sender, data):
+    response = data.decode('utf-8')
+    print(f"回應: {response}")
+
+async def receive_responses(address):
+    async with BleakClient(address) as client:
+        # 訂閱 TX Characteristic
+        await client.start_notify(TX_UUID, notification_handler)
+        await asyncio.sleep(30)  # 保持連線 30 秒
+        await client.stop_notify(TX_UUID)
+```
+
+### 連線管理
+
+**連線流程：**
+1. 掃描 BLE 裝置（尋找 "ESP32_S3_Console"）
+2. 連線到裝置
+3. 發現 Service 和 Characteristics
+4. 訂閱 TX Characteristic（啟用 Notify）
+5. 寫入命令到 RX Characteristic
+6. 接收 TX Characteristic 的 Notify 回應
+
+**自動重新廣播：**
+- 裝置斷線後會自動重新開始廣播
+- 支援多次連線/斷線循環
+
+**連線狀態追蹤：**
+```cpp
+bool bleDeviceConnected = false;  // 全域連線狀態旗標
+```
+
+### BLE 非同步架構
+
+**重要設計決策：避免 Reentrant 問題**
+
+BLE RX Characteristic 的 `onWrite()` callback 不直接處理命令，而是將命令加入佇列：
+
+**資料流程：**
+```
+BLE Client 寫入 RX Characteristic
+    ↓
+onWrite() callback (BLE stack context)
+    ↓
+xQueueSend(bleCommandQueue)  ← 只入佇列，不呼叫 notify
+    ↓
+bleTask (FreeRTOS Task context)
+    ↓
+xQueueReceive(bleCommandQueue)
+    ↓
+processCommand(multi_response)
+    ↓
+BLEResponse::println()
+    ↓
+pTxCharacteristic->notify()  ← 在 Task 上下文呼叫
+```
+
+**架構優勢：**
+- ✅ 避免在 BLE callback 中呼叫 `notify()`（會導致 reentrant 錯誤）
+- ✅ 與 HID Task 架構一致（ISR → Queue → Task）
+- ✅ 符合 FreeRTOS 和 BLE stack 的最佳實踐
+- ✅ 執行緒安全，可靠性高
+
+### 測試工具
+
+**Python 測試客戶端：** `scripts/ble_client.py`
+
+**安裝依賴：**
+```bash
+pip install bleak
+```
+
+**使用方式：**
+```bash
+# 掃描所有 BLE 裝置
+python scripts/ble_client.py --scan
+
+# 通過名稱連線
+python scripts/ble_client.py --name ESP32_S3_Console
+
+# 通過 MAC 位址連線
+python scripts/ble_client.py --address XX:XX:XX:XX:XX:XX
+```
+
+**行動裝置測試：**
+- 使用 nRF Connect app (Android/iOS)
+- 連線到 "ESP32_S3_Console"
+- 啟用 TX Characteristic 的 Notify
+- 寫入命令到 RX Characteristic（記得加 `\n`）
+
+### BLE vs CDC vs HID 比較
+
+| 特性 | CDC | HID | BLE |
+|------|-----|-----|-----|
+| 連線方式 | USB 有線 | USB 有線 | 無線 |
+| 格式 | 純文字 | 雙協定（0xA1/純文字） | 純文字 |
+| 最大長度 | 無限制 | 64 bytes/packet | 255 bytes/command |
+| 回應方式 | 串流 | 封包 | Notify |
+| 適用場景 | 開發除錯 | 應用程式整合 | 行動裝置、無線控制 |
+
 ## 統一命令系統
 
 ### 命令來源
 
-系統支援兩種命令來源：
+系統支援三種命令來源：
 1. **CDC** - USB 序列埠（Serial Console）
-2. **HID** - 帶有 `0xA1` header 的命令封包
+2. **HID** - 帶有 `0xA1` header 或純文字的命令封包
+3. **BLE** - BLE GATT RX Characteristic（純文字命令）
 
 ### 命令處理流程
 
 ```
-┌─────────────────┐              ┌──────────────────┐
-│  CDC Console    │              │  HID (0xA1)      │
-│  "HELP\n"       │              │  [A1][05][00]    │
-│  (無回顯輸入)    │              │  [HELP\n]        │
-└────────┬────────┘              └────────┬─────────┘
-         │                                │
-         │                                │
-         ▼                                ▼
-   ┌─────────────┐              ┌─────────────────┐
-   │  cdcTask    │              │    hidTask      │
-   │  (Core 1)   │              │    (Core 1)     │
-   └──────┬──────┘              └────────┬────────┘
-          │                              │
-          │  feedChar()                  │  isCommandPacket()
-          │  (累積字元)                   │  (解析封包)
-          │                              │
-          ▼                              ▼
-   ┌──────────────────────────────────────────────┐
-   │          CommandParser::processCommand       │
-   │              (統一命令處理邏輯)                │
-   └──────┬───────────────────────────────┬───────┘
-          │                               │
-          │ CDCResponse                   │ MultiChannelResponse
-          │ (僅 CDC)                      │ (CDC + HID)
-          │                               │
-          ▼                               ▼
-   ┌─────────────┐              ┌─────────────────────┐
-   │     CDC     │              │   CDC   │    HID    │
-   │   純文字     │              │  純文字  │  0xA1封包  │
-   └─────────────┘              └─────────────────────┘
+┌─────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│  CDC Console    │   │  HID (0xA1)      │   │   BLE GATT       │
+│  "HELP\n"       │   │  [A1][05][00]    │   │  "HELP\n"        │
+│  (無回顯輸入)    │   │  [HELP\n]        │   │  (RX Char)       │
+└────────┬────────┘   └────────┬─────────┘   └────────┬─────────┘
+         │                     │                       │
+         ▼                     ▼                       ▼
+   ┌─────────────┐   ┌─────────────────┐   ┌─────────────────┐
+   │  cdcTask    │   │    hidTask      │   │    bleTask      │
+   │  (Core 1)   │   │    (Core 1)     │   │    (Core 1)     │
+   └──────┬──────┘   └────────┬────────┘   └────────┬────────┘
+          │                   │                       │
+          │  feedChar()       │  isCommandPacket()    │  Queue Receive
+          │  (累積字元)        │  (解析封包)            │  (非同步)
+          │                   │                       │
+          ▼                   ▼                       ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │               CommandParser::processCommand               │
+   │                   (統一命令處理邏輯)                        │
+   └──────┬───────────────────────┬──────────────────┬────────┘
+          │                       │                  │
+          │ CDCResponse           │ MultiChannel     │ MultiChannel
+          │ (僅 CDC)              │ (CDC + HID)      │ (CDC + BLE)
+          │                       │                  │
+          ▼                       ▼                  ▼
+   ┌─────────────┐   ┌─────────────────────┐   ┌──────────────────┐
+   │     CDC     │   │  CDC  │     HID     │   │  CDC  │   BLE    │
+   │   純文字     │   │ 純文字 │   0xA1封包   │   │ 純文字 │  Notify  │
+   └─────────────┘   └─────────────────────┘   └──────────────────┘
 
    說明：
    - CDC 來源命令 → 只回應到 CDC
    - HID 來源命令 → 同時回應到 CDC 和 HID
+   - BLE 來源命令 → 同時回應到 CDC 和 BLE
 ```
 
 ### 回應機制
@@ -201,12 +396,32 @@ response_text
        類型  長度  保留   資料      補零到 64 bytes
   ```
 
+#### 3. BLE 來源命令（輸出到 CDC + BLE）
+
+使用 **MultiChannelResponse** 類別，同時包含：
+
+**CDC 回應：**
+- 格式：純文字 + 換行符
+- 範例：`HID_ESP32_S3\n`
+
+**BLE 回應：**
+- 格式：純文字（無 header）
+- 傳輸：透過 TX Characteristic Notify
+- 長回應：可能分割為多個 notification（取決於 BLE MTU）
+- 範例：
+  ```
+  輸入（寫入 RX Char）：*IDN?\n
+  BLE 輸出（TX Char Notify）：HID_ESP32_S3
+  CDC 輸出：HID_ESP32_S3\n
+  ```
+
 #### 回應路由表
 
-| 命令來源 | CDC 回應 | HID 回應 | 使用類別 |
-|---------|---------|---------|---------|
-| CDC     | ✓ 是    | ✗ 否    | CDCResponse |
-| HID     | ✓ 是    | ✓ 是    | MultiChannelResponse |
+| 命令來源 | CDC 回應 | HID 回應 | BLE 回應 | 使用類別 |
+|---------|---------|---------|---------|---------|
+| CDC     | ✓ 是    | ✗ 否    | ✗ 否    | CDCResponse |
+| HID     | ✓ 是    | ✓ 是    | ✗ 否    | MultiChannelResponse |
+| BLE     | ✓ 是    | ✗ 否    | ✓ 是    | MultiChannelResponse |
 
 ### 可用命令列表
 
@@ -244,11 +459,18 @@ response_text
   - 支援退格鍵（修改緩衝區但無視覺回饋）
   - 遇到 `\n` 或 `\r` → 使用 `CDCResponse` 執行命令
 
+- **bleTask** (Priority 1, Core 1)：
+  - 從 `bleCommandQueue` 接收 BLE 命令（佇列由 BLE RX callback 填充）
+  - **在 Task 上下文處理命令**（避免在 BLE callback 中呼叫 notify）
+  - 使用 `MultiChannelResponse` 執行命令（同時輸出到 BLE 和 CDC）
+  - 非同步架構與 hidTask 一致，符合 FreeRTOS 最佳實踐
+
 **同步機制：**
 - `hidSendMutex`：保護 `HID.send()` 呼叫（防止多 task 同時傳送）
-- `serialMutex`：保護 `USBSerial` 存取（cdcTask 和 hidTask 都會輸出到 CDC）
+- `serialMutex`：保護 `USBSerial` 存取（cdcTask、hidTask 和 bleTask 都會輸出到 CDC）
 - `bufferMutex`：保護 `hid_out_buffer` 存取（hidTask 寫入，READ 命令讀取）
 - `hidDataQueue`：ISR → hidTask 的資料傳遞佇列（深度 10，非阻塞發送）
+- `bleCommandQueue`：BLE RX callback → bleTask 的命令傳遞佇列（深度 10）
 
 **資料流程：**
 ```
@@ -261,6 +483,13 @@ hidTask 上下文:
 
 cdcTask 上下文:
   USBSerial.read() → feedChar() → processCommand(cdc_response)
+
+BLE RX Callback 上下文:
+  onWrite() → xQueueSend(bleCommandQueue)  (僅入佇列，不呼叫 notify)
+
+bleTask 上下文:
+  xQueueReceive(bleCommandQueue) → processCommand(multi_response)
+  → BLEResponse::println() → pTxCharacteristic->notify()
 ```
 
 ### 協定處理類別

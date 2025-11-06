@@ -176,16 +176,18 @@ This implementation uses FreeRTOS to separate concerns and ensure thread-safe op
    - Accumulates characters into command buffer
    - Processes CDC commands via CommandParser with CDCResponse
 
-3. **BLE GATT** (Event-driven callbacks)
-   - BLE RX Characteristic write callback processes commands
-   - Sends responses via BLE TX Characteristic (Notify)
-   - Processed via CommandParser with MultiChannelResponse
+3. **BLE Task** (`bleTask`, Priority 1, Core 1)
+   - Receives BLE commands from queue (populated by BLE RX callback)
+   - Processes commands outside BLE callback context (avoids notify reentrant issue)
+   - Uses CommandParser with MultiChannelResponse (BLE + CDC output)
+   - Consistent async architecture with HID Task
 
 4. **IDLE Task** (Arduino `loop()`)
    - Minimal work, yields to FreeRTOS scheduler
 
 **Synchronization Mechanisms:**
 - `hidDataQueue`: Queue for passing HID data from ISR to HID Task (10 packets deep)
+- `bleCommandQueue`: Queue for passing BLE commands from RX callback to BLE Task (10 commands deep)
 - `serialMutex`: Protects `USBSerial` access from multiple tasks
 - `bufferMutex`: Protects `hid_out_buffer` shared memory
 - `hidSendMutex`: Protects `HID.send()` calls to prevent concurrent access
@@ -201,8 +203,11 @@ HID Task Context:
 CDC Task Context:
   USBSerial.read() → CommandParser → CDCResponse (with serialMutex)
 
-BLE Callback Context:
-  onWrite() → CommandParser → MultiChannelResponse (BLE + CDC)
+BLE RX Callback Context:
+  onWrite() → xQueueSend(bleCommandQueue)  (enqueue only, no notify)
+
+BLE Task Context:
+  xQueueReceive(bleCommandQueue) → CommandParser → MultiChannelResponse (BLE + CDC)
 ```
 
 **Thread Safety:**
@@ -210,7 +215,9 @@ BLE Callback Context:
 - All access to `hid_out_buffer` is protected by `bufferMutex`
 - All access to `HID.send()` is protected by `hidSendMutex`
 - ISR uses non-blocking queue send (`xQueueSendFromISR`)
-- No complex operations in ISR context (only data copy to queue)
+- BLE RX callback only enqueues commands (no BLE notify in callback context)
+- BLE Task processes commands and sends notify responses (avoids reentrant issue)
+- No complex operations in ISR or BLE callback context
 
 ### Initialization Sequence
 The initialization order in `setup()` is critical:
@@ -241,6 +248,7 @@ The initialization order in `setup()` is critical:
 
 **5. Create FreeRTOS Resources:**
 - `hidDataQueue` - Queue for HID data packets (10 deep)
+- `bleCommandQueue` - Queue for BLE command packets (10 deep)
 - `serialMutex` - Mutex for USBSerial protection
 - `bufferMutex` - Mutex for hid_out_buffer protection
 - `hidSendMutex` - Mutex for HID.send() protection
@@ -248,12 +256,13 @@ The initialization order in `setup()` is critical:
 **6. Create FreeRTOS Tasks:**
 - `hidTask` (Priority 2, 4KB stack, Core 1)
 - `cdcTask` (Priority 1, 4KB stack, Core 1)
+- `bleTask` (Priority 1, 4KB stack, Core 1)
 
 **Notes:**
 - All communication interfaces are available immediately after initialization
 - FreeRTOS tasks must be created after USB/BLE initialization
 - All tasks run on Core 1 to avoid conflicts with Arduino WiFi/BLE on Core 0
-- BLE uses event-driven callbacks (no dedicated task required)
+- BLE uses async task architecture (consistent with HID Task design)
 
 ### HID Communication
 
@@ -506,13 +515,15 @@ All 64 bytes received successfully, including the previously lost `0x3F`.
 
 ### Task Priorities
 The system uses priority-based scheduling:
-- **HID Task**: Priority 2 (Higher) - Ensures HID data is processed promptly
-- **CDC Task**: Priority 1 (Lower) - Can be preempted by HID task
+- **HID Task**: Priority 2 (Highest) - Ensures HID data is processed promptly
+- **CDC Task**: Priority 1 (Medium) - Can be preempted by HID task
+- **BLE Task**: Priority 1 (Medium) - Same priority as CDC task
 - **IDLE Task**: Priority 0 (Lowest) - Arduino `loop()` function
 
 ### Memory Allocation
 - Each task has 4KB stack (configurable via `xTaskCreatePinnedToCore`)
-- Queue holds 10 HID packets (70 bytes each = 700 bytes total)
+- HID data queue: 10 packets (70 bytes each = 700 bytes total)
+- BLE command queue: 10 commands (260 bytes each = 2600 bytes total)
 - Mutexes have minimal overhead (~100 bytes each)
 
 ### Modifying Task Behavior
