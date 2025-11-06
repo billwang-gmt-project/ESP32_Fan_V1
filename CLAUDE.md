@@ -157,9 +157,8 @@ This is intentional behavior to ensure reliable data reception and should be mai
 - Three independent communication interfaces: USB CDC + USB HID + BLE GATT
 - Unified command system: All interfaces can send the same text commands
 - Response routing:
-  - CDC commands → CDC response only
-  - HID commands → CDC + HID response (dual channel)
-  - BLE commands → BLE + CDC response (dual channel)
+  - **General commands** (HELP, INFO, STATUS, etc.): All sources → CDC only (unified debug output)
+  - **SCPI commands** (*IDN?, etc.): Each source → Its own interface (standard SCPI behavior)
 
 **FreeRTOS Multi-Tasking Architecture:**
 This implementation uses FreeRTOS to separate concerns and ensure thread-safe operation:
@@ -359,20 +358,40 @@ The system uses a unified command parser (`CommandParser.h/cpp`) that handles co
   - Used for HID and BLE to also send to CDC for debugging
 
 **Command Processing Flow:**
-1. **CDC Path**: `cdcTask()` → `feedChar()` → `processCommand()` → `CDCResponse` (CDC only)
-2. **HID Path**: `hidTask()` → `processCommand()` → `MultiChannelResponse` (CDC + HID)
-3. **BLE Path**: `onWrite()` callback → `processCommand()` → `MultiChannelResponse` (CDC + BLE)
+1. **CDC Path**: `cdcTask()` → `feedChar()` → `processCommand()` → Response routing (see below)
+2. **HID Path**: `hidTask()` → `processCommand()` → Response routing (see below)
+3. **BLE Path**: `bleTask()` → `processCommand()` → Response routing (see below)
 4. All commands are case-insensitive
 5. Commands must end with newline (`\n` or `\r`)
 6. **No echo**: Input commands are NOT echoed to the terminal
 
 **Response Routing:**
 
-| Command Source | CDC Response | HID Response | BLE Response |
-|---------------|-------------|-------------|-------------|
-| CDC           | ✓ Yes       | ✗ No        | ✗ No        |
-| HID           | ✓ Yes       | ✓ Yes       | ✗ No        |
-| BLE           | ✓ Yes       | ✗ No        | ✓ Yes       |
+The system uses two different routing strategies:
+
+**General Commands (HELP, INFO, STATUS, etc.):**
+
+All general commands route responses to **CDC only** for unified debug output:
+
+| Command Source | CDC Response | HID Response | BLE Response | Notes |
+|---------------|-------------|-------------|-------------|-------|
+| CDC           | ✓ Yes       | ✗ No        | ✗ No        | CDC only |
+| HID           | ✓ Yes       | ✗ No        | ✗ No        | CDC only |
+| BLE           | ✓ Yes       | ✗ No        | ✗ No        | CDC only |
+
+**SCPI Commands (*IDN?, etc.):**
+
+SCPI commands route responses to their **source interface** (standard SCPI behavior):
+
+| Command Source | CDC Response | HID Response | BLE Response | Notes |
+|---------------|-------------|-------------|-------------|-------|
+| CDC           | ✓ Yes       | ✗ No        | ✗ No        | Source interface only |
+| HID           | ✗ No        | ✓ Yes       | ✗ No        | Source interface only |
+| BLE           | ✗ No        | ✗ No        | ✓ Yes       | Source interface only |
+
+**Design Rationale:**
+- **General commands**: Unified CDC output enables centralized monitoring/debugging of all interface activity
+- **SCPI commands**: Maintains standard SCPI behavior where queries respond to the querying interface
 
 **Available Commands:**
 - `*IDN?` - SCPI standard identification (returns device ID only, no command echo)

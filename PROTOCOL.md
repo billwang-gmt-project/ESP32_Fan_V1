@@ -15,7 +15,8 @@
 
 ✅ **多介面支援**：USB CDC、USB HID、BLE GATT 三種通訊介面
 ✅ **無字元回顯**：CDC 輸入時不會顯示輸入字元，只顯示命令回應
-✅ **智慧路由**：CDC 命令僅回應到 CDC，HID/BLE 命令同時回應到來源介面和 CDC
+✅ **統一 CDC 輸出**：除 SCPI 命令外，所有命令統一回應到 CDC（便於監控和除錯）
+✅ **SCPI 例外**：SCPI 命令（如 *IDN?）回應到命令來源介面
 ✅ **命令封包識別**：HID 封包以 `0xA1` 開頭表示命令，否則為原始資料
 ✅ **自動分割**：長回應自動分割為多個 64-byte HID 封包
 ✅ **非同步架構**：HID 和 BLE 使用 FreeRTOS Task + Queue，避免 reentrant 問題
@@ -31,24 +32,38 @@
 
 ### 回應路由規則
 
+**設計原則：統一 CDC 輸出**
+
+為了便於監控和除錯，除了 SCPI 命令外，所有命令都統一回應到 CDC 介面。
+
 ```
-CDC 來源 → parser.feedChar(..., cdc_response, ...)
-         → 回應：CDC only
+CDC 來源 → 一般命令 → CDC only
+         → SCPI 命令 → CDC only
 
-HID 來源 → parser.processCommand(..., multi_response, ...)
-         → 回應：CDC + HID
+HID 來源 → 一般命令 → CDC only
+         → SCPI 命令 → HID only (例外)
 
-BLE 來源 → parser.processCommand(..., multi_response, ...)
-         → 回應：CDC + BLE
+BLE 來源 → 一般命令 → CDC only
+         → SCPI 命令 → BLE only (例外)
 ```
 
-**多通道回應表：**
+**回應路由表：**
+
+**一般命令（HELP, INFO, STATUS 等）：**
+
+| 命令來源 | CDC 回應 | HID 回應 | BLE 回應 | 說明 |
+|---------|---------|---------|---------|------|
+| CDC     | ✓       | ✗       | ✗       | 僅回應到 CDC |
+| HID     | ✓       | ✗       | ✗       | 僅回應到 CDC |
+| BLE     | ✓       | ✗       | ✗       | 僅回應到 CDC |
+
+**SCPI 命令（*IDN? 等）：**
 
 | 命令來源 | CDC 回應 | HID 回應 | BLE 回應 | 說明 |
 |---------|---------|---------|---------|------|
 | CDC     | ✓       | ✗       | ✗       | 僅回應到命令來源 |
-| HID     | ✓       | ✓       | ✗       | 雙通道：來源 + CDC |
-| BLE     | ✓       | ✗       | ✓       | 雙通道：來源 + CDC |
+| HID     | ✗       | ✓       | ✗       | 僅回應到命令來源 |
+| BLE     | ✗       | ✗       | ✓       | 僅回應到命令來源 |
 
 ## HID 封包類型
 
@@ -342,86 +357,137 @@ python scripts/ble_client.py --address XX:XX:XX:XX:XX:XX
    ┌──────────────────────────────────────────────────────────┐
    │               CommandParser::processCommand               │
    │                   (統一命令處理邏輯)                        │
+   │                                                            │
+   │  判斷命令類型：                                              │
+   │  - SCPI (*IDN?) → 回應到來源介面                            │
+   │  - 其他命令 → 統一回應到 CDC                                │
    └──────┬───────────────────────┬──────────────────┬────────┘
           │                       │                  │
-          │ CDCResponse           │ MultiChannel     │ MultiChannel
-          │ (僅 CDC)              │ (CDC + HID)      │ (CDC + BLE)
-          │                       │                  │
+          │ CDCResponse           │ CDCResponse      │ CDCResponse
+          │ (CDC only)            │ (CDC only)       │ (CDC only)
+          │                       │ *IDN?例外:       │ *IDN?例外:
+          │                       │ HIDResponse      │ BLEResponse
           ▼                       ▼                  ▼
    ┌─────────────┐   ┌─────────────────────┐   ┌──────────────────┐
-   │     CDC     │   │  CDC  │     HID     │   │  CDC  │   BLE    │
-   │   純文字     │   │ 純文字 │   0xA1封包   │   │ 純文字 │  Notify  │
+   │     CDC     │   │       CDC           │   │       CDC        │
+   │   純文字     │   │  (一般命令)          │   │  (一般命令)       │
+   │             │   │                     │   │                  │
+   │             │   │  *IDN? → HID        │   │  *IDN? → BLE     │
+   │             │   │      (0xA1封包)      │   │      (Notify)    │
    └─────────────┘   └─────────────────────┘   └──────────────────┘
 
    說明：
    - CDC 來源命令 → 只回應到 CDC
-   - HID 來源命令 → 同時回應到 CDC 和 HID
-   - BLE 來源命令 → 同時回應到 CDC 和 BLE
+   - HID 來源命令 → 一般命令回應到 CDC，SCPI 命令回應到 HID
+   - BLE 來源命令 → 一般命令回應到 CDC，SCPI 命令回應到 BLE
 ```
 
 ### 回應機制
 
-**回應路由取決於命令來源：**
+**回應路由取決於命令類型和來源：**
 
-#### 1. CDC 來源命令（只輸出到 CDC）
+#### 1. CDC 來源命令（統一輸出到 CDC）
 
 使用 **CDCResponse** 類別：
 
 - **格式**：純文字 + 換行符
 - **目標**：僅 USBSerial（CDC 介面）
+- **所有命令**（包含 SCPI）都回應到 CDC
 - **範例**：
   ```
   輸入：*IDN?\n
   CDC 輸出：HID_ESP32_S3\n
   HID 輸出：（無）
+  BLE 輸出：（無）
+
+  輸入：HELP\n
+  CDC 輸出：可用命令...\n
+  HID 輸出：（無）
+  BLE 輸出：（無）
   ```
 
-#### 2. HID 來源命令（輸出到 CDC + HID）
+#### 2. HID 來源命令（依命令類型路由）
 
-使用 **MultiChannelResponse** 類別，同時包含：
+**一般命令**（HELP, INFO, STATUS 等）：
 
-**CDC 回應：**
-- 格式：純文字 + 換行符
-- 範例：`HID_ESP32_S3\n`
-
-**HID 回應：**
-- 格式：`[0xA1][length][0x00][response_text][padding...]`
-- 自動分割：長回應會分成多個 64-byte 封包
-- 每個封包：3 bytes header + 最多 61 bytes 資料
-- 範例：
+使用 **CDCResponse** 類別：
+- **格式**：純文字 + 換行符
+- **目標**：僅 CDC
+- **範例**：
   ```
-  回應 "OK" (2 bytes):
-  [0xA1][0x02][0x00]['O']['K'][0x00]...[0x00]
-       ^^^^  ^^^^  ^^^^  ^^^^^^^^  ^^^^^^^^^^^^^^
-       類型  長度  保留   資料      補零到 64 bytes
+  輸入：HELP\n
+  CDC 輸出：可用命令...\n
+  HID 輸出：（無）
   ```
 
-#### 3. BLE 來源命令（輸出到 CDC + BLE）
+**SCPI 命令**（*IDN? 等）：
 
-使用 **MultiChannelResponse** 類別，同時包含：
+使用 **HIDResponse** 類別：
+- **格式**：`[0xA1][length][0x00][response_text][padding...]`
+- **目標**：僅 HID
+- **自動分割**：長回應會分成多個 64-byte 封包
+- **每個封包**：3 bytes header + 最多 61 bytes 資料
+- **範例**：
+  ```
+  輸入：*IDN?\n
+  CDC 輸出：（無）
+  HID 輸出：[0xA1][0x0C][0x00]['H']['I']['D']...（12 bytes data）
 
-**CDC 回應：**
-- 格式：純文字 + 換行符
-- 範例：`HID_ESP32_S3\n`
+  回應 "HID_ESP32_S3" (12 bytes):
+  [0xA1][0x0C][0x00]['H']['I']['D']['_']['E']['S']['P']['3']['2']['_']['S']['3'][0x00]...[0x00]
+       ^^^^  ^^^^  ^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+       類型  長度  保留                    資料 (12 bytes)                    補零到64
+  ```
 
-**BLE 回應：**
-- 格式：純文字（無 header）
-- 傳輸：透過 TX Characteristic Notify
-- 長回應：可能分割為多個 notification（取決於 BLE MTU）
-- 範例：
+#### 3. BLE 來源命令（依命令類型路由）
+
+**一般命令**（HELP, INFO, STATUS 等）：
+
+使用 **CDCResponse** 類別：
+- **格式**：純文字 + 換行符
+- **目標**：僅 CDC
+- **範例**：
+  ```
+  輸入（寫入 RX Char）：HELP\n
+  CDC 輸出：可用命令...\n
+  BLE 輸出（TX Char Notify）：（無）
+  ```
+
+**SCPI 命令**（*IDN? 等）：
+
+使用 **BLEResponse** 類別：
+- **格式**：純文字（無 header）
+- **目標**：僅 BLE
+- **傳輸**：透過 TX Characteristic Notify
+- **長回應**：可能分割為多個 notification（取決於 BLE MTU）
+- **範例**：
   ```
   輸入（寫入 RX Char）：*IDN?\n
+  CDC 輸出：（無）
   BLE 輸出（TX Char Notify）：HID_ESP32_S3
-  CDC 輸出：HID_ESP32_S3\n
   ```
 
-#### 回應路由表
+#### 回應路由總表
+
+**一般命令（HELP, INFO, STATUS, SEND, READ, CLEAR）：**
 
 | 命令來源 | CDC 回應 | HID 回應 | BLE 回應 | 使用類別 |
 |---------|---------|---------|---------|---------|
 | CDC     | ✓ 是    | ✗ 否    | ✗ 否    | CDCResponse |
-| HID     | ✓ 是    | ✓ 是    | ✗ 否    | MultiChannelResponse |
-| BLE     | ✓ 是    | ✗ 否    | ✓ 是    | MultiChannelResponse |
+| HID     | ✓ 是    | ✗ 否    | ✗ 否    | CDCResponse |
+| BLE     | ✓ 是    | ✗ 否    | ✗ 否    | CDCResponse |
+
+**SCPI 命令（*IDN? 等）：**
+
+| 命令來源 | CDC 回應 | HID 回應 | BLE 回應 | 使用類別 |
+|---------|---------|---------|---------|---------|
+| CDC     | ✓ 是    | ✗ 否    | ✗ 否    | CDCResponse |
+| HID     | ✗ 否    | ✓ 是    | ✗ 否    | HIDResponse |
+| BLE     | ✗ 否    | ✗ 否    | ✓ 是    | BLEResponse |
+
+**設計理由：**
+- 一般命令統一輸出到 CDC，便於監控和除錯
+- SCPI 命令回應到來源介面，符合 SCPI 標準和應用程式整合需求
 
 ### 可用命令列表
 
