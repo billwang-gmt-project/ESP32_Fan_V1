@@ -515,7 +515,9 @@ python scripts/ble_client.py --address XX:XX:XX:XX:XX:XX
 - **hidTask** (Priority 2, Core 1)：
   - 從 `hidDataQueue` 接收 HID OUT 封包（佇列由 ISR 填充）
   - 使用 `HIDProtocol::isCommandPacket()` 判斷封包類型
-  - **命令封包** (0xA1 header) → 使用 `MultiChannelResponse` 執行命令
+  - **命令封包** (0xA1 header) → 根據命令類型路由回應：
+    - SCPI 命令 → 使用 `HIDResponse`（僅 HID 回應）
+    - 一般命令 → 使用 `CDCResponse`（僅 CDC 回應）
   - **原始資料** → 存入 `hid_out_buffer`，顯示除錯資訊
 
 - **cdcTask** (Priority 1, Core 1)：
@@ -528,7 +530,9 @@ python scripts/ble_client.py --address XX:XX:XX:XX:XX:XX
 - **bleTask** (Priority 1, Core 1)：
   - 從 `bleCommandQueue` 接收 BLE 命令（佇列由 BLE RX callback 填充）
   - **在 Task 上下文處理命令**（避免在 BLE callback 中呼叫 notify）
-  - 使用 `MultiChannelResponse` 執行命令（同時輸出到 BLE 和 CDC）
+  - 根據命令類型路由回應：
+    - SCPI 命令 → 使用 `BLEResponse`（僅 BLE 回應）
+    - 一般命令 → 使用 `CDCResponse`（僅 CDC 回應）
   - 非同步架構與 hidTask 一致，符合 FreeRTOS 最佳實踐
 
 **同步機制：**
@@ -620,8 +624,22 @@ parser.feedChar(c, buffer, cdc_response, CMD_SOURCE_CDC);
 // → 結果：只輸出到 CDC
 
 // hidTask 中（HID 來源命令）
-parser.processCommand(cmd, multi_response, CMD_SOURCE_HID);
-// → 結果：同時輸出到 CDC 和 HID
+// SCPI 命令 → 只回應到 HID
+// 一般命令 → 只回應到 CDC
+if (CommandParser::isSCPICommand(cmd)) {
+    parser.processCommand(cmd, hid_response, CMD_SOURCE_HID);
+} else {
+    parser.processCommand(cmd, cdc_response, CMD_SOURCE_HID);
+}
+
+// bleTask 中（BLE 來源命令）
+// SCPI 命令 → 只回應到 BLE
+// 一般命令 → 只回應到 CDC
+if (CommandParser::isSCPICommand(cmd)) {
+    parser.processCommand(cmd, ble_response, CMD_SOURCE_BLE);
+} else {
+    parser.processCommand(cmd, cdc_response, CMD_SOURCE_BLE);
+}
 ```
 
 ## 主機端測試範例
@@ -754,7 +772,15 @@ hidapitester --vidpid 303A:4002 --open --send-output 0xA1,0x05,0x00,0x49,0x4E,0x
 
 ## 版本歷史
 
-### v2.1 (目前版本) - 2025-01
+### v2.2 (目前版本) - 2025-01
+- ✅ **重構回應路由機制**：實現基於命令類型的智慧路由
+  - 一般命令（HELP, INFO, STATUS 等）→ 所有來源統一回應到 CDC
+  - SCPI 命令（*IDN? 等）→ 回應到命令來源介面
+- ✅ **新增 isSCPICommand() 方法**：自動偵測 SCPI 命令（以 * 開頭）
+- ✅ **符合協定規格**：完全符合 PROTOCOL.md 回應路由表
+- ✅ **改進除錯體驗**：所有介面的一般命令統一在 CDC 顯示，便於監控
+
+### v2.1 - 2025-01
 - ✅ **移除字元回顯**：CDC 輸入無 echo，實現乾淨的命令回應
 - ✅ **智慧回應路由**：
   - CDC 命令 → 僅 CDC 回應（CDCResponse）
