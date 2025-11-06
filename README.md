@@ -14,6 +14,18 @@
 - **執行緒安全**：完整的 Mutex 保護機制
 - **64-byte HID 報告**：無 Report ID，真正的 64 位元組傳輸
 
+## 📚 語言說明 / Language Notes
+
+本專案採用雙語文件策略：
+
+- **CLAUDE.md** - 英文（供 AI 助手和國際開發者使用）
+- **README.md, PROTOCOL.md, TESTING.md** - 繁體中文（供主要使用者）
+
+This project uses a bilingual documentation strategy:
+
+- **CLAUDE.md** - English (for AI assistants and international developers)
+- **README.md, PROTOCOL.md, TESTING.md** - Traditional Chinese (for primary users)
+
 ## 📋 系統需求
 
 ### 硬體
