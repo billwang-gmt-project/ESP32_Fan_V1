@@ -31,6 +31,9 @@ public:
     // 返回 true 表示有完整命令被處理
     bool feedChar(char c, String& buffer, ICommandResponse* response, CommandSource source);
 
+    // 檢查命令是否為 SCPI 命令
+    static bool isSCPICommand(const String& cmd);
+
 private:
     void handleIDN(ICommandResponse* response);
     void handleHelp(ICommandResponse* response);

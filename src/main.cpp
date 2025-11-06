@@ -166,9 +166,16 @@ void hidTask(void* parameter) {
                     xSemaphoreGive(serialMutex);
                 }
 
-                // 執行命令（使用多通道回應，同時輸出到 HID 和 CDC）
+                // 執行命令（根據命令類型路由回應）
                 String cmd_str(command_buffer);
-                parser.processCommand(cmd_str, multi_response, CMD_SOURCE_HID);
+
+                // SCPI 命令 → 只回應到 HID
+                // 一般命令 → 只回應到 CDC
+                if (CommandParser::isSCPICommand(cmd_str)) {
+                    parser.processCommand(cmd_str, hid_response, CMD_SOURCE_HID);
+                } else {
+                    parser.processCommand(cmd_str, cdc_response, CMD_SOURCE_HID);
+                }
 
                 // 顯示提示符
                 if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
@@ -292,10 +299,15 @@ void bleTask(void* parameter) {
                 xSemaphoreGive(serialMutex);
             }
 
-            // 處理 BLE 命令（同時輸出到 BLE 和 CDC）
+            // 處理 BLE 命令（根據命令類型路由回應）
             // 重要：在任務上下文中調用，不在 BLE 回調中！
-            MultiChannelResponse bleMultiResponse(ble_response, cdc_response);
-            parser.processCommand(command, &bleMultiResponse, CMD_SOURCE_BLE);
+            // SCPI 命令 → 只回應到 BLE
+            // 一般命令 → 只回應到 CDC
+            if (CommandParser::isSCPICommand(command)) {
+                parser.processCommand(command, ble_response, CMD_SOURCE_BLE);
+            } else {
+                parser.processCommand(command, cdc_response, CMD_SOURCE_BLE);
+            }
 
             // 短暫延遲確保 BLE 通知發送完成
             vTaskDelay(pdMS_TO_TICKS(100));

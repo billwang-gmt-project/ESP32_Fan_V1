@@ -113,6 +113,26 @@ bool CommandParser::feedChar(char c, String& buffer, ICommandResponse* response,
     return false;
 }
 
+bool CommandParser::isSCPICommand(const String& cmd) {
+    // 去除前後空白
+    String trimmed = cmd;
+    trimmed.trim();
+
+    // 轉換為大寫以進行不區分大小寫的比較
+    String upper = trimmed;
+    upper.toUpperCase();
+
+    // 檢查是否為 SCPI 命令（以 * 開頭或符合 SCPI 模式）
+    if (upper.startsWith("*")) {
+        return true;  // 所有以 * 開頭的都是 SCPI 命令，例如 *IDN?, *RST, *CLS
+    }
+
+    // 可以在此添加其他 SCPI 命令模式檢測
+    // 例如: SYST:ERR?, MEAS:VOLT? 等
+
+    return false;
+}
+
 void CommandParser::handleIDN(ICommandResponse* response) {
     response->println("HID_ESP32_S3");
 }
