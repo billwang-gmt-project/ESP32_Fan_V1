@@ -40,8 +40,15 @@ typedef struct {
     uint16_t raw_len;
 } HIDDataPacket;
 
+// BLE 命令結構
+typedef struct {
+    char command[256];  // BLE 命令字串（最大 255 字元 + null terminator）
+    uint16_t len;       // 命令長度
+} BLECommandPacket;
+
 // FreeRTOS 資源
 QueueHandle_t hidDataQueue = nullptr;      // HID 資料佇列
+QueueHandle_t bleCommandQueue = nullptr;   // BLE 命令佇列
 SemaphoreHandle_t serialMutex = nullptr;   // 保護 USBSerial 存取
 SemaphoreHandle_t bufferMutex = nullptr;   // 保護 hid_out_buffer 存取
 SemaphoreHandle_t hidSendMutex = nullptr;  // 保護 HID.send() 存取
@@ -96,18 +103,24 @@ class MyRxCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
         std::string rxValue = pCharacteristic->getValue();
 
-        if (rxValue.length() > 0) {
-            String command = String(rxValue.c_str());
-            command.trim();
+        if (rxValue.length() > 0 && rxValue.length() < 256) {
+            // 創建命令封包
+            BLECommandPacket packet;
+            strncpy(packet.command, rxValue.c_str(), sizeof(packet.command) - 1);
+            packet.command[sizeof(packet.command) - 1] = '\0';  // 確保 null terminator
+            packet.len = rxValue.length();
 
-            if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
-                USBSerial.printf("\n[BLE CMD] %s\n", command.c_str());
-                xSemaphoreGive(serialMutex);
+            // 放入佇列（不阻塞，從回調中調用）
+            if (bleCommandQueue) {
+                BaseType_t result = xQueueSend(bleCommandQueue, &packet, 0);
+                if (result != pdTRUE) {
+                    // 佇列已滿，丟棄命令
+                    if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(10))) {
+                        USBSerial.println("[BLE] 命令佇列已滿，命令被丟棄");
+                        xSemaphoreGive(serialMutex);
+                    }
+                }
             }
-
-            // 處理 BLE 命令（同時輸出到 BLE 和 CDC）
-            MultiChannelResponse bleMultiResponse(ble_response, cdc_response);
-            parser.processCommand(command, &bleMultiResponse, CMD_SOURCE_BLE);
         }
     }
 };
@@ -263,6 +276,33 @@ void cdcTask(void* parameter) {
     }
 }
 
+// BLE 處理 Task
+void bleTask(void* parameter) {
+    BLECommandPacket packet;
+
+    while (true) {
+        // 從佇列接收命令（阻塞等待）
+        if (xQueueReceive(bleCommandQueue, &packet, portMAX_DELAY) == pdTRUE) {
+            String command = String(packet.command);
+            command.trim();
+
+            // 調試輸出（保護 USBSerial）
+            if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
+                USBSerial.printf("\n[BLE CMD] %s\n", command.c_str());
+                xSemaphoreGive(serialMutex);
+            }
+
+            // 處理 BLE 命令（同時輸出到 BLE 和 CDC）
+            // 重要：在任務上下文中調用，不在 BLE 回調中！
+            MultiChannelResponse bleMultiResponse(ble_response, cdc_response);
+            parser.processCommand(command, &bleMultiResponse, CMD_SOURCE_BLE);
+
+            // 短暫延遲確保 BLE 通知發送完成
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+}
+
 void setup() {
     // ========== 步驟 1: 初始化 USB ==========
     USBSerial.begin();
@@ -272,13 +312,14 @@ void setup() {
 
     // ========== 步驟 2: 創建 FreeRTOS 資源（必須在 BLE 初始化之前！）==========
     hidDataQueue = xQueueCreate(10, sizeof(HIDDataPacket));
+    bleCommandQueue = xQueueCreate(10, sizeof(BLECommandPacket));  // BLE 命令佇列
     serialMutex = xSemaphoreCreateMutex();
     bufferMutex = xSemaphoreCreateMutex();
     hidSendMutex = xSemaphoreCreateMutex();
     bleNotifyQueue = xQueueCreate(32, sizeof(char*));
 
     // 檢查資源創建是否成功
-    if (!hidDataQueue || !serialMutex || !bufferMutex || !hidSendMutex || !bleNotifyQueue) {
+    if (!hidDataQueue || !bleCommandQueue || !serialMutex || !bufferMutex || !hidSendMutex || !bleNotifyQueue) {
         // 如果資源創建失敗，進入無限迴圈（需要重啟）
         while (true) {
             delay(1000);
@@ -372,10 +413,20 @@ void setup() {
         1                  // Core 1
     );
 
+    xTaskCreatePinnedToCore(
+        bleTask,           // Task 函數
+        "BLE_Task",        // Task 名稱
+        4096,              // Stack 大小
+        NULL,              // 參數
+        1,                 // 優先權（與 CDC 相同）
+        NULL,              // Task handle
+        1                  // Core 1
+    );
+
     USBSerial.println("[INFO] FreeRTOS Tasks 已啟動");
     USBSerial.println("[INFO] - HID Task (優先權 2)");
     USBSerial.println("[INFO] - CDC Task (優先權 1)");
-    USBSerial.println("[INFO] - BLE 透過 callback 處理");
+    USBSerial.println("[INFO] - BLE Task (優先權 1)");
 }
 
 void loop() {
