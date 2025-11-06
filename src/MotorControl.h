@@ -195,6 +195,12 @@ public:
     void feedWatchdog();
 
     /**
+     * @brief Check watchdog timeout
+     * @return true if watchdog is OK, false if timeout occurred
+     */
+    bool checkWatchdog();
+
+    /**
      * @brief Send pulse on GPIO 12 (change notification)
      *
      * Sends a brief pulse when PWM parameters change.
@@ -308,12 +314,6 @@ private:
      * @return Filtered RPM value
      */
     float applyRPMFilter(float rawValue);
-
-    /**
-     * @brief Check watchdog timeout
-     * @return true if watchdog is OK, false if timeout occurred
-     */
-    bool checkWatchdog();
 };
 
 #endif // MOTOR_CONTROL_H
