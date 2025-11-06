@@ -17,249 +17,72 @@ This is an ESP32-S3 USB composite device implementation combining CDC (Communica
 
 ## Changing Board Variants
 
-This project is configured for **ESP32-S3-DevKitC-1 N16R8** by default, but can be adapted to other ESP32-S3-DevKitC-1 variants. Here's how to switch boards:
+This project supports all ESP32-S3-DevKitC-1 variants. Default: **N16R8** (16MB Flash, 8MB PSRAM).
 
-### Supported Board Variants
+### Quick Change Process
 
-| Board Variant | Flash Size | PSRAM Size | PlatformIO Board ID |
-|--------------|-----------|-----------|-------------------|
-| **N16R8** (Default) | 16 MB | 8 MB | `esp32-s3-devkitc-1-n16r8` |
-| **N8R2** | 8 MB | 2 MB | `esp32-s3-devkitc-1-n8r2` |
-| **N8R8** | 8 MB | 8 MB | `esp32-s3-devkitc-1-n8r8` |
-| **Standard/N8** | 8 MB | No PSRAM | `esp32-s3-devkitc-1-n8` |
-| **N4R2** | 4 MB | 2 MB | `esp32-s3-devkitc-1` (generic) |
+**1. Identify Your Board**
 
-### Step-by-Step Guide
+Check the label on your ESP32-S3-DevKitC-1:
+- `N16R8` → 16MB Flash + 8MB PSRAM (current default)
+- `N8R2` → 8MB Flash + 2MB PSRAM
+- `N8` → 8MB Flash, No PSRAM
+- No suffix → Usually 4MB Flash + 2MB PSRAM
 
-**Important Note About Board Definitions:**
+**2. Update platformio.ini**
 
-The official PlatformIO `platform-espressif32` only includes the base `esp32-s3-devkitc-1` board (N8 variant). For other variants (N16R8, N8R2, N8R8), you have **two options**:
+Use the base board (`esp32-s3-devkitc-1`) with overrides. Example for N8R2:
 
-- **Option A**: Use base board with overrides (recommended - simpler, no extra files)
-- **Option B**: Use variant-specific board IDs (if available in your platform version)
-
-**1. Update platformio.ini**
-
-Choose the appropriate configuration method:
-
-**Option A: For N16R8 using base board + overrides (RECOMMENDED):**
-```ini
-[env:esp32-s3-devkitc-1-n16r8]
-platform = espressif32
-board = esp32-s3-devkitc-1  ; Use base board
-framework = arduino
-; Override flash/PSRAM settings for N16R8
-board_build.flash_size = 16MB
-board_build.psram_type = opi
-board_build.memory_type = qio_opi
-board_upload.flash_size = 16MB
-board_upload.maximum_size = 16777216
-board_build.partitions = default_16MB.csv
-build_flags =
-    -DARDUINO_USB_MODE=1
-    -DARDUINO_USB_CDC_ON_BOOT=1
-    -DCONFIG_TINYUSB_HID_BUFSIZE=128
-    -DCFG_TUD_HID_EP_BUFSIZE=128
-    -DBOARD_HAS_PSRAM
-monitor_speed = 115200
-```
-
-**Option B: For N16R8 using specific board ID (if available):**
-```ini
-[env:esp32-s3-devkitc-1-n16r8]
-platform = espressif32
-board = esp32-s3-devkitc-1-n16r8  ; May not exist in older platforms
-framework = arduino
-build_flags =
-    -DARDUINO_USB_MODE=1
-    -DARDUINO_USB_CDC_ON_BOOT=1
-    -DCONFIG_TINYUSB_HID_BUFSIZE=128
-    -DCFG_TUD_HID_EP_BUFSIZE=128
-monitor_speed = 115200
-```
-
-**For N8R2 (8MB Flash, 2MB PSRAM) - Option A:**
 ```ini
 [env:esp32-s3-devkitc-1-n8r2]
 platform = espressif32
-board = esp32-s3-devkitc-1
+board = esp32-s3-devkitc-1           # Base board
 framework = arduino
-board_build.flash_size = 8MB
-board_build.psram_type = qspi
-board_build.memory_type = qio_qspi
+board_build.flash_size = 8MB         # Override for N8R2
+board_build.psram_type = qspi        # Override for N8R2
 board_upload.flash_size = 8MB
 build_flags =
     -DARDUINO_USB_MODE=1
     -DARDUINO_USB_CDC_ON_BOOT=1
     -DCONFIG_TINYUSB_HID_BUFSIZE=128
     -DCFG_TUD_HID_EP_BUFSIZE=128
-    -DBOARD_HAS_PSRAM
+    -DBOARD_HAS_PSRAM                # Remove if no PSRAM
 monitor_speed = 115200
 ```
 
-**For Standard ESP32-S3-DevKitC-1 (8MB Flash, no PSRAM):**
-```ini
-[env:esp32-s3-devkitc-1-n8]
-platform = espressif32
-board = esp32-s3-devkitc-1  ; This is the default
-framework = arduino
-build_flags =
-    -DARDUINO_USB_MODE=1
-    -DARDUINO_USB_CDC_ON_BOOT=1
-    -DCONFIG_TINYUSB_HID_BUFSIZE=128
-    -DCFG_TUD_HID_EP_BUFSIZE=128
-monitor_speed = 115200
-```
-
-**2. Clean Build (Critical!)**
-
-After changing the board configuration, you **must** perform a clean build:
+**3. Clean Build**
 
 ```bash
 pio run -t clean && pio run
 ```
 
-This ensures:
-- Correct partition table is loaded for the new flash size
-- PSRAM configuration is properly applied
-- All build artifacts are regenerated for the new target
+**4. Upload**
 
-**3. Upload Firmware**
-
-Enter bootloader mode and upload as usual:
 ```bash
 # Enter bootloader mode: Hold BOOT, press RESET, release BOOT
 pio run -t upload
 ```
 
-**4. Verify Configuration**
+**5. Verify**
 
-After uploading, use the `INFO` command to verify the board configuration:
+Use the `INFO` command to check Flash/PSRAM sizes are correct.
 
-```
-*IDN?  → Returns: HID_ESP32_S3
-INFO   → Should show correct Flash and PSRAM sizes
-```
+### Common Configurations
 
-### Important Considerations
+| Variant | Changes Required |
+|---------|------------------|
+| **N16R8** (default) | No changes needed |
+| **N8R2** | Set flash_size=8MB, psram_type=qspi |
+| **N8** (no PSRAM) | Set flash_size=8MB, remove -DBOARD_HAS_PSRAM |
+| **N4R2** | Set flash_size=4MB, psram_type=qspi |
 
-**Flash Size Impact:**
-- **16MB → 8MB**: No issues, the project uses minimal flash (~300KB)
-- **16MB → 4MB**: Still sufficient, but less room for future expansion
-- The firmware size is ~307KB, well within limits for all variants
+### Important Notes
 
-**PSRAM Impact:**
-- **With PSRAM (8MB/2MB)**: FreeRTOS tasks can use larger stacks if needed
-- **Without PSRAM (N8 variant)**: Current configuration works fine (4KB per task)
-- The current implementation uses ~700 bytes for queue + minimal mutex overhead
-- Total RAM usage: ~31KB (well within ESP32-S3's 512KB internal SRAM)
+✅ **No code changes required** - USB implementation is memory-independent
+✅ **All variants supported** - Firmware is only ~307KB
+⚠️ **Always clean build** - Ensures correct partition table
 
-**No Code Changes Required:**
-- The USB composite device implementation is independent of flash/PSRAM size
-- Build flags remain the same across all variants
-- FreeRTOS configuration (4KB stack per task) works on all variants
-
-### Partition Table Notes
-
-PlatformIO automatically selects the appropriate partition table based on the board variant:
-- **N16R8**: Uses 16MB flash partition scheme
-- **N8R2/N8R8/N8**: Uses 8MB flash partition scheme
-- **Generic (4MB)**: Uses default 4MB partition scheme
-
-You do **not** need to manually specify partition tables unless you have custom requirements.
-
-### Verifying Your Board Variant
-
-If you're unsure which variant you have, check the board label:
-
-```
-ESP32-S3-DevKitC-1-N16R8  → 16MB Flash, 8MB PSRAM
-ESP32-S3-DevKitC-1-N8R2   → 8MB Flash, 2MB PSRAM
-ESP32-S3-DevKitC-1-N8R8   → 8MB Flash, 8MB PSRAM
-ESP32-S3-DevKitC-1-N8     → 8MB Flash, No PSRAM
-ESP32-S3-DevKitC-1        → Usually 4MB Flash, 2MB PSRAM (check marking)
-```
-
-The variant code breakdown:
-- **N16** = 16MB Flash, **N8** = 8MB Flash, **N4** = 4MB Flash
-- **R8** = 8MB PSRAM, **R2** = 2MB PSRAM, no R = No PSRAM
-
-### Custom Board JSON Files (Advanced)
-
-If you prefer to create custom board definitions instead of using `board_*` overrides, you can create JSON files in your project:
-
-**1. Create a `boards/` directory in your project root:**
-
-```bash
-mkdir boards
-```
-
-**2. Create `boards/esp32-s3-devkitc-1-n16r8.json`:**
-
-```json
-{
-  "build": {
-    "arduino": {
-      "ldscript": "esp32s3_out.ld",
-      "memory_type": "qio_opi"
-    },
-    "core": "esp32",
-    "extra_flags": [
-      "-DARDUINO_ESP32S3_DEV",
-      "-DARDUINO_RUNNING_CORE=1",
-      "-DARDUINO_EVENT_RUNNING_CORE=1",
-      "-DBOARD_HAS_PSRAM"
-    ],
-    "f_cpu": "240000000L",
-    "f_flash": "80000000L",
-    "flash_mode": "qio",
-    "hwids": [["0x303A", "0x1001"]],
-    "mcu": "esp32s3",
-    "variant": "esp32s3"
-  },
-  "connectivity": ["wifi", "bluetooth"],
-  "debug": {
-    "openocd_target": "esp32s3.cfg"
-  },
-  "frameworks": ["arduino", "espidf"],
-  "name": "ESP32-S3-DevKitC-1-N16R8 (16 MB QD, 8 MB Octal PSRAM)",
-  "upload": {
-    "flash_size": "16MB",
-    "maximum_ram_size": 327680,
-    "maximum_size": 16777216,
-    "require_upload_port": true,
-    "speed": 921600
-  },
-  "url": "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html",
-  "vendor": "Espressif"
-}
-```
-
-**3. Use simplified platformio.ini:**
-
-```ini
-[env:esp32-s3-devkitc-1-n16r8]
-platform = espressif32
-board = esp32-s3-devkitc-1-n16r8  ; PlatformIO will find it in boards/ folder
-framework = arduino
-build_flags =
-    -DARDUINO_USB_MODE=1
-    -DARDUINO_USB_CDC_ON_BOOT=1
-    -DCONFIG_TINYUSB_HID_BUFSIZE=128
-    -DCFG_TUD_HID_EP_BUFSIZE=128
-monitor_speed = 115200
-```
-
-**Advantages of Custom JSON:**
-- ✅ Cleaner `platformio.ini` configuration
-- ✅ Better IDE autocomplete and board recognition
-- ✅ Reusable across projects
-
-**Disadvantages:**
-- ⚠️ Requires maintaining extra files
-- ⚠️ May conflict with future platform updates
-
-**Recommendation:** Use **Option A** (board overrides) unless you need the JSON file for multiple projects or prefer cleaner configuration.
+**For detailed configuration options, multiple approaches, and advanced customization, see [Appendix A: Advanced Board Configuration](#appendix-a-advanced-board-configuration).**
 
 ## Build Commands
 
@@ -775,3 +598,373 @@ The project documentation is organized as follows:
 | Understand HID protocol | PROTOCOL.md |
 | Run tests and verify | TESTING.md |
 | Develop and modify code | CLAUDE.md + source code |
+
+---
+
+## Appendix A: Advanced Board Configuration
+
+This appendix provides detailed information for advanced board configuration scenarios, multiple configuration approaches, and custom board definitions.
+
+### Supported Board Variants (Detailed)
+
+| Board Variant | Flash Size | PSRAM Size | PSRAM Type | PlatformIO Board ID |
+|--------------|-----------|-----------|------------|-------------------|
+| **N16R8** (Default) | 16 MB | 8 MB | Octal (OPI) | `esp32-s3-devkitc-1-n16r8` |
+| **N8R2** | 8 MB | 2 MB | Quad (QSPI) | `esp32-s3-devkitc-1-n8r2` |
+| **N8R8** | 8 MB | 8 MB | Octal (OPI) | `esp32-s3-devkitc-1-n8r8` |
+| **Standard/N8** | 8 MB | No PSRAM | N/A | `esp32-s3-devkitc-1-n8` |
+| **N4R2** | 4 MB | 2 MB | Quad (QSPI) | `esp32-s3-devkitc-1` (generic) |
+
+### Configuration Methods
+
+#### Method 1: Base Board + Overrides (Recommended)
+
+**Advantages:**
+- ✅ Simpler - no extra files needed
+- ✅ Works with all PlatformIO versions
+- ✅ Easy to understand and modify
+- ✅ Explicit configuration visible in platformio.ini
+
+**Important Note:**
+The official PlatformIO `platform-espressif32` only includes the base `esp32-s3-devkitc-1` board definition. For other variants, use board setting overrides as shown below.
+
+**For N16R8 (16MB Flash, 8MB Octal PSRAM):**
+```ini
+[env:esp32-s3-devkitc-1-n16r8]
+platform = espressif32
+board = esp32-s3-devkitc-1  ; Use base board
+framework = arduino
+; Override flash/PSRAM settings for N16R8
+board_build.flash_size = 16MB
+board_build.psram_type = opi
+board_build.memory_type = qio_opi
+board_upload.flash_size = 16MB
+board_upload.maximum_size = 16777216
+board_build.partitions = default_16MB.csv
+build_flags =
+    -DARDUINO_USB_MODE=1
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DCONFIG_TINYUSB_HID_BUFSIZE=128
+    -DCFG_TUD_HID_EP_BUFSIZE=128
+    -DBOARD_HAS_PSRAM
+monitor_speed = 115200
+```
+
+**For N8R2 (8MB Flash, 2MB Quad PSRAM):**
+```ini
+[env:esp32-s3-devkitc-1-n8r2]
+platform = espressif32
+board = esp32-s3-devkitc-1
+framework = arduino
+board_build.flash_size = 8MB
+board_build.psram_type = qspi
+board_build.memory_type = qio_qspi
+board_upload.flash_size = 8MB
+build_flags =
+    -DARDUINO_USB_MODE=1
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DCONFIG_TINYUSB_HID_BUFSIZE=128
+    -DCFG_TUD_HID_EP_BUFSIZE=128
+    -DBOARD_HAS_PSRAM
+monitor_speed = 115200
+```
+
+**For N8R8 (8MB Flash, 8MB Octal PSRAM):**
+```ini
+[env:esp32-s3-devkitc-1-n8r8]
+platform = espressif32
+board = esp32-s3-devkitc-1
+framework = arduino
+board_build.flash_size = 8MB
+board_build.psram_type = opi
+board_build.memory_type = qio_opi
+board_upload.flash_size = 8MB
+build_flags =
+    -DARDUINO_USB_MODE=1
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DCONFIG_TINYUSB_HID_BUFSIZE=128
+    -DCFG_TUD_HID_EP_BUFSIZE=128
+    -DBOARD_HAS_PSRAM
+monitor_speed = 115200
+```
+
+**For Standard ESP32-S3-DevKitC-1 (8MB Flash, no PSRAM):**
+```ini
+[env:esp32-s3-devkitc-1-n8]
+platform = espressif32
+board = esp32-s3-devkitc-1  ; This is the default
+framework = arduino
+build_flags =
+    -DARDUINO_USB_MODE=1
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DCONFIG_TINYUSB_HID_BUFSIZE=128
+    -DCFG_TUD_HID_EP_BUFSIZE=128
+monitor_speed = 115200
+```
+
+#### Method 2: Variant-Specific Board IDs
+
+**Advantages:**
+- ✅ Cleaner platformio.ini
+- ✅ May provide better IDE integration (if supported)
+
+**Disadvantages:**
+- ⚠️ May not be available in older PlatformIO platform versions
+- ⚠️ Less explicit about configuration details
+
+**Example:**
+```ini
+[env:esp32-s3-devkitc-1-n16r8]
+platform = espressif32
+board = esp32-s3-devkitc-1-n16r8  ; May not exist in all platform versions
+framework = arduino
+build_flags =
+    -DARDUINO_USB_MODE=1
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DCONFIG_TINYUSB_HID_BUFSIZE=128
+    -DCFG_TUD_HID_EP_BUFSIZE=128
+monitor_speed = 115200
+```
+
+**Note:** If PlatformIO cannot find the board ID, you'll see an error like `Error: Unknown board ID 'esp32-s3-devkitc-1-n16r8'`. In this case, use Method 1 instead.
+
+#### Method 3: Custom Board JSON Files (Advanced)
+
+This method involves creating custom board definition files in your project.
+
+**Advantages:**
+- ✅ Cleanest platformio.ini configuration
+- ✅ Better IDE autocomplete and board recognition
+- ✅ Reusable across multiple projects
+- ✅ Can specify additional board-specific settings
+
+**Disadvantages:**
+- ⚠️ Requires maintaining extra files
+- ⚠️ May conflict with future platform updates
+- ⚠️ More complex to set up
+
+**Setup Steps:**
+
+**1. Create a `boards/` directory in your project root:**
+
+```bash
+mkdir boards
+```
+
+**2. Create `boards/esp32-s3-devkitc-1-n16r8.json`:**
+
+```json
+{
+  "build": {
+    "arduino": {
+      "ldscript": "esp32s3_out.ld",
+      "memory_type": "qio_opi"
+    },
+    "core": "esp32",
+    "extra_flags": [
+      "-DARDUINO_ESP32S3_DEV",
+      "-DARDUINO_RUNNING_CORE=1",
+      "-DARDUINO_EVENT_RUNNING_CORE=1",
+      "-DBOARD_HAS_PSRAM"
+    ],
+    "f_cpu": "240000000L",
+    "f_flash": "80000000L",
+    "flash_mode": "qio",
+    "hwids": [["0x303A", "0x1001"]],
+    "mcu": "esp32s3",
+    "variant": "esp32s3"
+  },
+  "connectivity": ["wifi", "bluetooth"],
+  "debug": {
+    "openocd_target": "esp32s3.cfg"
+  },
+  "frameworks": ["arduino", "espidf"],
+  "name": "ESP32-S3-DevKitC-1-N16R8 (16 MB QD, 8 MB Octal PSRAM)",
+  "upload": {
+    "flash_size": "16MB",
+    "maximum_ram_size": 327680,
+    "maximum_size": 16777216,
+    "require_upload_port": true,
+    "speed": 921600
+  },
+  "url": "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/esp32s3/user-guide-devkitc-1.html",
+  "vendor": "Espressif"
+}
+```
+
+**3. Use simplified platformio.ini:**
+
+```ini
+[env:esp32-s3-devkitc-1-n16r8]
+platform = espressif32
+board = esp32-s3-devkitc-1-n16r8  ; PlatformIO will find it in boards/ folder
+framework = arduino
+build_flags =
+    -DARDUINO_USB_MODE=1
+    -DARDUINO_USB_CDC_ON_BOOT=1
+    -DCONFIG_TINYUSB_HID_BUFSIZE=128
+    -DCFG_TUD_HID_EP_BUFSIZE=128
+monitor_speed = 115200
+```
+
+### Detailed Considerations
+
+#### Flash Size Impact
+
+| Transition | Impact | Notes |
+|-----------|--------|-------|
+| 16MB → 8MB | ✅ No issues | Firmware uses ~307KB, plenty of room |
+| 16MB → 4MB | ✅ Still sufficient | Less room for OTA updates or file systems |
+| 8MB → 4MB | ✅ Works fine | Minimal impact for this project |
+
+**Current Firmware Size:** ~307KB (well within limits for all variants)
+
+#### PSRAM Impact
+
+**With PSRAM (8MB or 2MB):**
+- FreeRTOS tasks can use larger stacks if needed
+- More room for future features requiring additional memory
+- Slightly higher power consumption
+
+**Without PSRAM (N8 variant):**
+- Current configuration works perfectly (4KB stack per task)
+- More power-efficient
+- Sufficient for this USB composite device implementation
+
+**Current Implementation:**
+- Queue overhead: ~700 bytes (10 packets × 70 bytes)
+- Mutex overhead: ~300 bytes (3 mutexes × ~100 bytes each)
+- Task stacks: 8KB total (2 tasks × 4KB each)
+- Total RAM usage: ~31KB (well within ESP32-S3's 512KB internal SRAM)
+
+#### Build Flags Consistency
+
+**These flags are required for ALL variants:**
+```ini
+build_flags =
+    -DARDUINO_USB_MODE=1             # Enable native USB
+    -DARDUINO_USB_CDC_ON_BOOT=1      # Enable CDC on boot
+    -DCONFIG_TINYUSB_HID_BUFSIZE=128 # HID buffer size
+    -DCFG_TUD_HID_EP_BUFSIZE=128     # TinyUSB endpoint buffer
+```
+
+**Add this flag only if your board has PSRAM:**
+```ini
+    -DBOARD_HAS_PSRAM                # Enable PSRAM support
+```
+
+#### Partition Table Selection
+
+PlatformIO automatically selects partition tables based on flash size:
+
+| Flash Size | Default Partition Scheme | Manual Override |
+|-----------|-------------------------|-----------------|
+| 16MB | `default_16MB.csv` | `board_build.partitions = default_16MB.csv` |
+| 8MB | `default_8MB.csv` or `default.csv` | `board_build.partitions = default.csv` |
+| 4MB | `default.csv` | Usually not needed |
+
+**You only need to specify a custom partition table if:**
+- Using custom partitions (e.g., for OTA, SPIFFS, LittleFS)
+- PlatformIO doesn't auto-select correctly
+
+### Verifying Your Board Variant
+
+If you're unsure which variant you have, check these sources:
+
+**1. Physical Board Label:**
+```
+ESP32-S3-DevKitC-1-N16R8  → 16MB Flash, 8MB PSRAM
+ESP32-S3-DevKitC-1-N8R2   → 8MB Flash, 2MB PSRAM
+ESP32-S3-DevKitC-1-N8R8   → 8MB Flash, 8MB PSRAM
+ESP32-S3-DevKitC-1-N8     → 8MB Flash, No PSRAM
+ESP32-S3-DevKitC-1        → Usually 4MB Flash, 2MB PSRAM (check marking)
+```
+
+**2. Variant Code Breakdown:**
+- **N16** = 16MB Flash
+- **N8** = 8MB Flash
+- **N4** = 4MB Flash
+- **R8** = 8MB PSRAM
+- **R2** = 2MB PSRAM
+- **No R** = No PSRAM
+
+**3. Runtime Detection (using INFO command):**
+
+After flashing, use the `INFO` command via CDC or HID to check:
+```
+INFO
+
+Response:
+裝置資訊:
+晶片型號: ESP32-S3
+自由記憶體: 295632 bytes
+Flash 大小: 16777216 bytes (16 MB)  ← Verify this matches
+PSRAM 大小: 8388608 bytes (8 MB)    ← Verify this matches
+```
+
+### Troubleshooting Board Configuration
+
+#### Issue: Build Fails After Changing Board
+
+**Symptoms:**
+- Compilation errors about undefined symbols
+- Linker errors about memory regions
+- Flash overflow errors
+
+**Solution:**
+```bash
+# ALWAYS do a clean build after changing board configuration
+pio run -t clean && pio run
+```
+
+#### Issue: Device Won't Boot After Flash Size Change
+
+**Symptoms:**
+- Device doesn't enumerate on USB
+- Serial monitor shows boot loop or crash
+
+**Possible Causes:**
+1. Partition table mismatch
+2. Old bootloader incompatible with new flash size
+
+**Solution:**
+```bash
+# Erase flash completely and re-upload
+pio run -t erase
+pio run -t upload
+```
+
+#### Issue: PSRAM Not Detected
+
+**Symptoms:**
+- `INFO` command shows PSRAM size as 0
+- System crashes when trying to use PSRAM
+
+**Solution:**
+1. Verify `-DBOARD_HAS_PSRAM` is in build_flags
+2. Check `board_build.psram_type` matches your board:
+   - `opi` for Octal PSRAM (N16R8, N8R8)
+   - `qspi` for Quad PSRAM (N8R2, N4R2)
+3. Verify your board actually has PSRAM (N8 variant has none)
+
+### When to Use Each Method
+
+**Use Method 1 (Base Board + Overrides) when:**
+- ✅ You're new to PlatformIO
+- ✅ You want explicit, visible configuration
+- ✅ You're working on a single project
+- ✅ You want maximum compatibility
+
+**Use Method 2 (Variant-Specific Board IDs) when:**
+- ✅ Your PlatformIO platform version supports the board ID
+- ✅ You prefer cleaner configuration files
+- ✅ You don't need to customize beyond standard settings
+
+**Use Method 3 (Custom Board JSON) when:**
+- ✅ You need the same custom board across multiple projects
+- ✅ You want better IDE integration
+- ✅ You need to customize advanced board settings (clock speeds, etc.)
+- ✅ You're comfortable maintaining JSON files
+
+**Recommendation for This Project:**
+Use **Method 1** (Base Board + Overrides) as it's the most straightforward and maintainable approach.
