@@ -297,7 +297,7 @@ build_flags =
 
 ### DTR Signal Dependency
 The CDC serial interface (`USBSerial`) requires DTR (Data Terminal Ready) to be enabled in the serial terminal. Without DTR:
-- The device will wait 5 seconds at boot (timeout in `setup()` at line 59)
+- The device will wait 5 seconds at boot (see timeout loop in `setup()` function)
 - Serial communication still works after timeout
 - Welcome message may be missed if terminal opens late
 
@@ -591,7 +591,7 @@ The system uses priority-based scheduling:
 ### Modifying Task Behavior
 
 **Adjusting Task Priority:**
-Change the priority parameter in `xTaskCreatePinnedToCore()` (main.cpp:213, 223):
+Change the priority parameter in `xTaskCreatePinnedToCore()` calls in `setup()`:
 ```cpp
 xTaskCreatePinnedToCore(hidTask, "HID_Task", 4096, NULL, 2, NULL, 1);  // Priority = 2
 ```
@@ -603,7 +603,7 @@ xTaskCreatePinnedToCore(hidTask, "HID_Task", 8192, NULL, 2, NULL, 1);  // 8KB st
 ```
 
 **Adjusting Queue Depth:**
-Increase if HID data is lost during bursts (main.cpp:203):
+Increase if HID data is lost during bursts (see `hidDataQueue` creation in `setup()`):
 ```cpp
 hidDataQueue = xQueueCreate(20, sizeof(HIDDataPacket));  // 20 packets
 ```
