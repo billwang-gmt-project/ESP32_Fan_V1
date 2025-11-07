@@ -97,6 +97,11 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
         motorControl.clearEmergencyStop();
         response->println("✅ 錯誤已清除 - 系統已恢復正常");
         response->println("Emergency error cleared - System resumed");
+
+        // Notify web clients that error is cleared
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
         return true;
     }
 
@@ -524,10 +529,10 @@ void CommandParser::handleSetPWMFreq(ICommandResponse* response, uint32_t freq) 
                         MotorLimits::MIN_FREQUENCY, MotorLimits::MAX_FREQUENCY);
         return;
     }
-    
+
     // Check against user-configurable safety limit
     if (freq > motorSettingsManager.get().maxFrequency) {
-        response->printf("❌ 錯誤：頻率 %d Hz 超過安全限制 %d Hz\n", 
+        response->printf("❌ 錯誤：頻率 %d Hz 超過安全限制 %d Hz\n",
                         freq, motorSettingsManager.get().maxFrequency);
         response->printf("   使用 'SET MAX_FREQ %d' 來提高限制\n", freq);
         return;
@@ -535,6 +540,11 @@ void CommandParser::handleSetPWMFreq(ICommandResponse* response, uint32_t freq) 
 
     if (motorControl.setPWMFrequency(freq)) {
         response->printf("✅ PWM 頻率設定為: %d Hz\n", freq);
+
+        // Notify web clients about the change
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
     } else {
         response->println("❌ 設定 PWM 頻率失敗");
     }
@@ -549,6 +559,11 @@ void CommandParser::handleSetPWMDuty(ICommandResponse* response, float duty) {
 
     if (motorControl.setPWMDuty(duty)) {
         response->printf("✅ PWM 占空比設定為: %.1f%%\n", duty);
+
+        // Notify web clients about the change
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
     } else {
         response->println("❌ 設定 PWM 占空比失敗");
     }
@@ -562,8 +577,14 @@ void CommandParser::handleSetPolePairs(ICommandResponse* response, uint8_t pairs
     }
 
     motorSettingsManager.get().polePairs = pairs;
+    motorControl.setPolePairs(pairs);  // Apply to motor control immediately
     response->printf("✅ 馬達極對數設定為: %d\n", pairs);
     response->println("ℹ️ 使用 SAVE 命令儲存設定");
+
+    // Notify web clients about the change
+    if (webServerManager.isRunning()) {
+        webServerManager.broadcastStatus();
+    }
 }
 
 void CommandParser::handleSetMaxFreq(ICommandResponse* response, uint32_t maxFreq) {
@@ -576,6 +597,11 @@ void CommandParser::handleSetMaxFreq(ICommandResponse* response, uint32_t maxFre
     motorSettingsManager.get().maxFrequency = maxFreq;
     response->printf("✅ 最大頻率設定為: %d Hz\n", maxFreq);
     response->println("ℹ️ 使用 SAVE 命令儲存設定");
+
+    // Notify web clients about the change
+    if (webServerManager.isRunning()) {
+        webServerManager.broadcastStatus();
+    }
 }
 
 void CommandParser::handleSetMaxRPM(ICommandResponse* response, uint32_t maxRPM) {
@@ -587,6 +613,11 @@ void CommandParser::handleSetMaxRPM(ICommandResponse* response, uint32_t maxRPM)
     motorSettingsManager.get().maxSafeRPM = maxRPM;
     response->printf("✅ 最大 RPM 設定為: %d\n", maxRPM);
     response->println("ℹ️ 使用 SAVE 命令儲存設定");
+
+    // Notify web clients about the change
+    if (webServerManager.isRunning()) {
+        webServerManager.broadcastStatus();
+    }
 }
 
 void CommandParser::handleSetLEDBrightness(ICommandResponse* response, uint8_t brightness) {
@@ -601,6 +632,11 @@ void CommandParser::handleSetLEDBrightness(ICommandResponse* response, uint8_t b
     }
 
     response->println("ℹ️ 使用 SAVE 命令儲存設定");
+
+    // Notify web clients about the change
+    if (webServerManager.isRunning()) {
+        webServerManager.broadcastStatus();
+    }
 }
 
 void CommandParser::handleRPM(ICommandResponse* response) {
@@ -672,6 +708,11 @@ void CommandParser::handleMotorStatus(ICommandResponse* response) {
 void CommandParser::handleMotorStop(ICommandResponse* response) {
     motorControl.emergencyStop();
     response->println("⛔ 緊急停止已啟動 - 占空比設為 0%");
+
+    // Notify web clients about emergency stop
+    if (webServerManager.isRunning()) {
+        webServerManager.broadcastStatus();
+    }
 }
 
 void CommandParser::handleSaveSettings(ICommandResponse* response) {
@@ -695,6 +736,13 @@ void CommandParser::handleLoadSettings(ICommandResponse* response) {
         // Apply loaded settings to motor control
         motorControl.setPWMFrequency(settings.frequency);
         motorControl.setPWMDuty(settings.duty);
+        motorControl.setPolePairs(settings.polePairs);
+        statusLED.setBrightness(settings.ledBrightness);
+
+        // Notify web clients about the changes
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
     } else {
         response->println("❌ 載入設定失敗");
     }
@@ -711,6 +759,13 @@ void CommandParser::handleResetSettings(ICommandResponse* response) {
     // Apply default settings
     motorControl.setPWMFrequency(MotorDefaults::FREQUENCY);
     motorControl.setPWMDuty(MotorDefaults::DUTY);
+    motorControl.setPolePairs(MotorDefaults::POLE_PAIRS);
+    statusLED.setBrightness(MotorDefaults::LED_BRIGHTNESS);
+
+    // Notify web clients about the changes
+    if (webServerManager.isRunning()) {
+        webServerManager.broadcastStatus();
+    }
 }
 
 // ==================== Advanced Features (Priority 3) ====================
@@ -731,6 +786,11 @@ void CommandParser::handleSetPWMFreqRamped(ICommandResponse* response, uint32_t 
     if (motorControl.setPWMFrequencyRamped(freq, rampTimeMs)) {
         response->printf("✅ 開始頻率漸變: %d Hz → %d Hz (耗時 %d ms)\n",
                         motorControl.getPWMFrequency(), freq, rampTimeMs);
+
+        // Notify web clients - they will see gradual change via periodic updates
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
     } else {
         response->println("❌ 啟動頻率漸變失敗");
     }
@@ -752,6 +812,11 @@ void CommandParser::handleSetPWMDutyRamped(ICommandResponse* response, float dut
     if (motorControl.setPWMDutyRamped(duty, rampTimeMs)) {
         response->printf("✅ 開始占空比漸變: %.1f%% → %.1f%% (耗時 %d ms)\n",
                         motorControl.getPWMDuty(), duty, rampTimeMs);
+
+        // Notify web clients - they will see gradual change via periodic updates
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
     } else {
         response->println("❌ 啟動占空比漸變失敗");
     }
