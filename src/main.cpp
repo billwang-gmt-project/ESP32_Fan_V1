@@ -509,6 +509,7 @@ void setup() {
     // ========== 步驟 4: 等待 USB 連接（在 BLE 初始化之前）==========
     unsigned long start = millis();
     while (!USBSerial && (millis() - start < 5000)) {
+        statusLED.update();  // Update LED during wait to show blinking
         delay(100);
     }
 
@@ -617,11 +618,14 @@ void setup() {
                 break;
         }
 
+        statusLED.update();  // Update LED before WiFi start
         if (wifiManager.start()) {
             USBSerial.println("✅ WiFi started successfully");
+            statusLED.update();  // Update LED after WiFi start
 
             // Start web server if WiFi is connected
             if (wifiManager.isConnected()) {
+                statusLED.update();  // Update LED before web server start
                 if (webServerManager.start()) {
                     USBSerial.println("✅ Web server started successfully");
                     USBSerial.println("");
@@ -646,6 +650,8 @@ void setup() {
 
     // ========== 步驟 7: 初始化 BLE（現在 mutex 已準備好）==========
     USBSerial.println("[INFO] 正在初始化 BLE...");
+    statusLED.update();  // Update LED during initialization
+
     BLEDevice::init("ESP32_S3_Console");
     pBLEServer = BLEDevice::createServer();
     pBLEServer->setCallbacks(new MyServerCallbacks());
@@ -667,6 +673,7 @@ void setup() {
     pRxCharacteristic->setCallbacks(new MyRxCallbacks());
 
     pService->start();
+    statusLED.update();  // Update LED after service start
 
     // 開始廣播
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
@@ -674,6 +681,7 @@ void setup() {
     pAdvertising->setScanResponse(false);
     pAdvertising->setMinPreferred(0x0);
     BLEDevice::startAdvertising();
+    statusLED.update();  // Update LED after advertising start
 
     // 創建 BLE 回應物件
     ble_response = new BLEResponse(pTxCharacteristic);
@@ -685,6 +693,7 @@ void setup() {
     USBSerial.print("\n> ");
 
     // 創建 FreeRTOS Tasks
+    statusLED.update();  // Update LED before creating tasks
     xTaskCreatePinnedToCore(
         hidTask,           // Task 函數
         "HID_Task",        // Task 名稱
