@@ -449,7 +449,7 @@
                             <label class="control-label">Baud Rate</label>
                             <input type="number" id="uart1Baud" class="control-input" value="115200" min="2400" max="1500000">
                         </div>
-                        <button class="button" onclick="applyUART1Mode()">Apply UART Mode</button>
+                        <button class="button" onclick="applyUART1Mode()">Update Baud Rate</button>
                     </div>
 
                     <div id="uart1PwmControls" style="display: none;">
@@ -689,9 +689,34 @@
                 document.getElementById('ledBrightnessDisplay').textContent = parseFloat(this.value).toFixed(1);
             });
 
-            // UART1 mode selector
+            // UART1 mode selector - apply mode change immediately
             document.getElementById('uart1ModeSelect').addEventListener('change', function() {
-                updateUART1ModeDisplay(this.value);
+                const selectedMode = this.value;
+                updateUART1ModeDisplay(selectedMode);
+
+                // Immediately apply the mode change via API
+                const params = new URLSearchParams();
+                params.append('mode', selectedMode);
+                if (selectedMode === 'UART') {
+                    params.append('baud', document.getElementById('uart1Baud').value);
+                }
+
+                fetch('/api/uart1/mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: params
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert('UART1 mode changed to ' + selectedMode, 'success');
+                    } else {
+                        showAlert('Error: ' + (data.error || 'Mode change failed'), 'error');
+                    }
+                })
+                .catch(error => {
+                    showAlert('Network error: ' + error.message, 'error');
+                });
             });
         }
 
