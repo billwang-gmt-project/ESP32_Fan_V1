@@ -13,6 +13,7 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <WiFi.h>
 #include <cstring>
 
 // 外部變數（從 main.cpp）
@@ -246,6 +247,20 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
         return false;
     }
 
+    // WiFi 連線命令: WIFI <ssid> <password>
+    if (upper.startsWith("WIFI ") && !upper.startsWith("WIFI STATUS") &&
+        !upper.startsWith("WIFI START") && !upper.startsWith("WIFI STOP") &&
+        !upper.startsWith("WIFI SCAN")) {
+        handleWiFiConnect(trimmed, response);
+        return true;
+    }
+
+    // IP 地址顯示
+    if (upper == "IP") {
+        handleIPAddress(response);
+        return true;
+    }
+
     // WiFi 狀態
     if (upper == "WIFI STATUS") {
         handleWiFiStatus(response);
@@ -376,6 +391,8 @@ void CommandParser::handleHelp(ICommandResponse* response) {
     response->println("  RESET         - 重設為出廠預設值");
     response->println("");
     response->println("WiFi & Web 伺服器:");
+    response->println("  WIFI <ssid> <password> - 連接到 WiFi 網路");
+    response->println("  IP            - 顯示 IP 位址資訊");
     response->println("  WIFI STATUS   - 顯示 WiFi 連線狀態");
     response->println("  WIFI START    - 啟動 WiFi");
     response->println("  WIFI STOP     - 停止 WiFi");
@@ -849,6 +866,126 @@ void CommandParser::handleWebStatus(ICommandResponse* response) {
     if (wifiManager.isConnected()) {
         response->println("");
         response->printf("存取網址: http://%s/\n", wifiManager.getIPAddress().c_str());
+    }
+
+    response->println("");
+}
+
+void CommandParser::handleWiFiConnect(const String& cmd, ICommandResponse* response) {
+    // Parse command: WIFI <ssid> <password>
+    // Format: "WIFI ssid password" or "wifi ssid password"
+
+    int firstSpace = cmd.indexOf(' ');
+    if (firstSpace == -1) {
+        response->println("❌ 格式錯誤");
+        response->println("用法: WIFI <ssid> <password>");
+        return;
+    }
+
+    String remainder = cmd.substring(firstSpace + 1);
+    remainder.trim();
+
+    int secondSpace = remainder.indexOf(' ');
+    if (secondSpace == -1) {
+        response->println("❌ 格式錯誤: 缺少密碼");
+        response->println("用法: WIFI <ssid> <password>");
+        return;
+    }
+
+    String ssid = remainder.substring(0, secondSpace);
+    String password = remainder.substring(secondSpace + 1);
+
+    ssid.trim();
+    password.trim();
+
+    if (ssid.length() == 0) {
+        response->println("❌ SSID 不能為空");
+        return;
+    }
+
+    // Update WiFi settings
+    WiFiSettings& settings = wifiSettingsManager.get();
+    strncpy(settings.sta_ssid, ssid.c_str(), sizeof(settings.sta_ssid) - 1);
+    settings.sta_ssid[sizeof(settings.sta_ssid) - 1] = '\0';
+    strncpy(settings.sta_password, password.c_str(), sizeof(settings.sta_password) - 1);
+    settings.sta_password[sizeof(settings.sta_password) - 1] = '\0';
+    settings.mode = WiFiMode::STA;  // Set to Station mode
+
+    // Save settings
+    wifiSettingsManager.save();
+
+    response->printf("🔧 正在連接到 WiFi: %s\n", ssid.c_str());
+
+    // Stop current WiFi
+    wifiManager.stop();
+    delay(500);
+
+    // Start WiFi with new settings
+    if (wifiManager.start()) {
+        // Wait for connection
+        int attempts = 0;
+        while (!wifiManager.isConnected() && attempts < 30) {
+            delay(500);
+            attempts++;
+        }
+
+        if (wifiManager.isConnected()) {
+            response->println("✅ WiFi 連接成功！");
+            response->printf("  IP 位址: %s\n", wifiManager.getIPAddress().c_str());
+            response->printf("  RSSI: %d dBm\n", wifiManager.getRSSI());
+
+            // Start web server if not running
+            if (!webServerManager.isRunning()) {
+                if (webServerManager.start()) {
+                    response->println("");
+                    response->println("🌐 Web 伺服器已啟動");
+                    response->printf("  存取網址: http://%s/\n", wifiManager.getIPAddress().c_str());
+                }
+            }
+        } else {
+            response->println("❌ WiFi 連接失敗");
+            response->println("  請檢查 SSID 和密碼是否正確");
+        }
+    } else {
+        response->println("❌ WiFi 啟動失敗");
+    }
+}
+
+void CommandParser::handleIPAddress(ICommandResponse* response) {
+    response->println("=== IP 位址資訊 ===");
+
+    if (!wifiManager.isConnected()) {
+        response->println("⚠️ WiFi 未連接");
+        response->println("");
+        return;
+    }
+
+    const WiFiSettings& settings = wifiSettingsManager.get();
+
+    // Station mode IP
+    if (settings.mode == WiFiMode::STA || settings.mode == WiFiMode::AP_STA) {
+        response->println("Station Mode:");
+        response->printf("  IP 位址: %s\n", wifiManager.getIPAddress().c_str());
+        response->printf("  SSID: %s\n", settings.sta_ssid);
+        response->printf("  RSSI: %d dBm\n", wifiManager.getRSSI());
+    }
+
+    // Access Point IP
+    if (settings.mode == WiFiMode::AP || settings.mode == WiFiMode::AP_STA) {
+        if (settings.mode == WiFiMode::AP_STA) {
+            response->println("");
+        }
+        response->println("Access Point Mode:");
+        response->printf("  IP 位址: %s\n", WiFi.softAPIP().toString().c_str());
+        response->printf("  SSID: %s\n", settings.ap_ssid);
+        response->printf("  已連接客戶端: %d\n", wifiManager.getClientCount());
+    }
+
+    // Web server URL
+    if (webServerManager.isRunning()) {
+        response->println("");
+        response->println("🌐 Web 伺服器:");
+        response->printf("  存取網址: http://%s/\n", wifiManager.getIPAddress().c_str());
     }
 
     response->println("");
