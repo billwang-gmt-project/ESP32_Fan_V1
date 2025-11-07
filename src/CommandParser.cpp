@@ -304,6 +304,102 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
         return true;
     }
 
+    // ========================================================================
+    // Peripheral Commands
+    // ========================================================================
+
+    // UART1 Commands
+    if (upper.startsWith("UART1 MODE ")) {
+        handleUART1Mode(upper, response);
+        return true;
+    }
+    if (upper.startsWith("UART1 CONFIG ")) {
+        handleUART1Config(upper, response);
+        return true;
+    }
+    if (upper.startsWith("UART1 PWM ")) {
+        handleUART1PWM(upper, response);
+        return true;
+    }
+    if (upper == "UART1 STATUS") {
+        handleUART1Status(response);
+        return true;
+    }
+    if (upper.startsWith("UART1 WRITE ")) {
+        handleUART1Write(trimmed, response);
+        return true;
+    }
+
+    // UART2 Commands
+    if (upper.startsWith("UART2 CONFIG ")) {
+        handleUART2Config(upper, response);
+        return true;
+    }
+    if (upper == "UART2 STATUS") {
+        handleUART2Status(response);
+        return true;
+    }
+    if (upper.startsWith("UART2 WRITE ")) {
+        handleUART2Write(trimmed, response);
+        return true;
+    }
+
+    // Buzzer Commands
+    if (upper.startsWith("BUZZER BEEP ")) {
+        handleBuzzerBeep(upper, response);
+        return true;
+    }
+    if (upper.startsWith("BUZZER ")) {
+        handleBuzzerControl(upper, response);
+        return true;
+    }
+
+    // LED PWM Commands
+    if (upper.startsWith("LED_PWM FADE ") || upper.startsWith("LEDPWM FADE ")) {
+        handleLEDFade(upper, response);
+        return true;
+    }
+    if (upper.startsWith("LED_PWM ") || upper.startsWith("LEDPWM ")) {
+        handleLEDPWM(upper, response);
+        return true;
+    }
+
+    // Relay Commands
+    if (upper.startsWith("RELAY ")) {
+        handleRelayControl(upper, response);
+        return true;
+    }
+
+    // GPIO Commands
+    if (upper.startsWith("GPIO ")) {
+        handleGPIOControl(upper, response);
+        return true;
+    }
+
+    // Keys Commands
+    if (upper == "KEYS STATUS" || upper == "KEYS") {
+        handleKeysStatus(response);
+        return true;
+    }
+    if (upper.startsWith("KEYS CONFIG ")) {
+        handleKeysConfig(upper, response);
+        return true;
+    }
+    if (upper.startsWith("KEYS MODE ")) {
+        handleKeysMode(upper, response);
+        return true;
+    }
+
+    // Peripheral Status Commands
+    if (upper == "PERIPHERAL STATUS" || upper == "PERIPHERALS") {
+        handlePeripheralStatus(response);
+        return true;
+    }
+    if (upper == "PERIPHERAL STATS") {
+        handlePeripheralStats(response);
+        return true;
+    }
+
     // 未知命令
     response->print("未知命令: ");
     response->println(trimmed.c_str());
@@ -412,6 +508,34 @@ void CommandParser::handleHelp(ICommandResponse* response) {
     response->println("  WIFI STOP     - 停止 WiFi");
     response->println("  WIFI SCAN     - 掃描可用網路");
     response->println("  WEB STATUS    - 顯示 Web 伺服器狀態");
+    response->println("");
+    response->println("週邊控制:");
+    response->println("  UART1 MODE <UART|PWM|OFF> - 設定 UART1 模式");
+    response->println("  UART1 CONFIG <baud>       - 設定 UART1 參數");
+    response->println("  UART1 PWM <freq> <duty>   - 設定 UART1 PWM");
+    response->println("  UART1 STATUS              - 顯示 UART1 狀態");
+    response->println("  UART1 WRITE <text>        - 寫入 UART1");
+    response->println("  UART2 CONFIG <baud>       - 設定 UART2 參數");
+    response->println("  UART2 STATUS              - 顯示 UART2 狀態");
+    response->println("  UART2 WRITE <text>        - 寫入 UART2");
+    response->println("");
+    response->println("  BUZZER <freq> <duty>      - 設定蜂鳴器");
+    response->println("  BUZZER ON/OFF             - 開/關蜂鳴器");
+    response->println("  BUZZER BEEP <freq> <ms>   - 發出嗶聲");
+    response->println("  LED_PWM <freq> <brightness> - 設定 LED PWM");
+    response->println("  LED_PWM ON/OFF            - 開/關 LED");
+    response->println("  LED_PWM FADE <brightness> <ms> - LED 漸變");
+    response->println("");
+    response->println("  RELAY ON/OFF/TOGGLE       - 控制繼電器");
+    response->println("  RELAY PULSE <ms>          - 繼電器脈衝");
+    response->println("  GPIO HIGH/LOW/TOGGLE      - 控制 GPIO");
+    response->println("  GPIO STATUS               - 顯示 GPIO 狀態");
+    response->println("");
+    response->println("  KEYS                      - 顯示按鍵狀態");
+    response->println("  KEYS CONFIG <duty_step> <freq_step> - 設定步進值");
+    response->println("  KEYS MODE <DUTY|FREQ>     - 設定按鍵控制模式");
+    response->println("  PERIPHERAL STATUS         - 顯示所有週邊狀態");
+    response->println("  PERIPHERAL STATS          - 顯示詳細統計");
     response->println("");
     response->println("支援的介面:");
     response->println("  - USB CDC (序列埠)");

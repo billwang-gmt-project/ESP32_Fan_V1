@@ -71,6 +71,27 @@ private:
     void handleWiFiStop(ICommandResponse* response);
     void handleWiFiScan(ICommandResponse* response);
     void handleWebStatus(ICommandResponse* response);
+
+    // Peripheral commands (UART, Buzzer, LED, Relay, GPIO, Keys)
+    void handleUART1Mode(const String& cmd, ICommandResponse* response);
+    void handleUART1Config(const String& cmd, ICommandResponse* response);
+    void handleUART1PWM(const String& cmd, ICommandResponse* response);
+    void handleUART1Status(ICommandResponse* response);
+    void handleUART1Write(const String& cmd, ICommandResponse* response);
+    void handleUART2Config(const String& cmd, ICommandResponse* response);
+    void handleUART2Status(ICommandResponse* response);
+    void handleUART2Write(const String& cmd, ICommandResponse* response);
+    void handleBuzzerControl(const String& cmd, ICommandResponse* response);
+    void handleBuzzerBeep(const String& cmd, ICommandResponse* response);
+    void handleLEDPWM(const String& cmd, ICommandResponse* response);
+    void handleLEDFade(const String& cmd, ICommandResponse* response);
+    void handleRelayControl(const String& cmd, ICommandResponse* response);
+    void handleGPIOControl(const String& cmd, ICommandResponse* response);
+    void handleKeysStatus(ICommandResponse* response);
+    void handleKeysConfig(const String& cmd, ICommandResponse* response);
+    void handleKeysMode(const String& cmd, ICommandResponse* response);
+    void handlePeripheralStatus(ICommandResponse* response);
+    void handlePeripheralStats(ICommandResponse* response);
 };
 
 // CDC 回應實作
