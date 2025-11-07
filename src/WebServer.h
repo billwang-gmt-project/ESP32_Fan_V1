@@ -9,6 +9,7 @@
 #include "MotorControl.h"
 #include "MotorSettings.h"
 #include "WiFiManager.h"
+#include "StatusLED.h"
 
 /**
  * @brief Web Server Manager
@@ -29,12 +30,14 @@ public:
      * @param motorControl Pointer to motor control instance
      * @param motorSettingsManager Pointer to motor settings manager
      * @param wifiManager Pointer to WiFi manager
+     * @param statusLED Pointer to status LED controller
      * @return true if successful
      */
     bool begin(WiFiSettings* wifiSettings,
                MotorControl* motorControl,
                MotorSettingsManager* motorSettingsManager,
-               WiFiManager* wifiManager);
+               WiFiManager* wifiManager,
+               StatusLED* statusLED = nullptr);
 
     /**
      * @brief Start web server
@@ -86,6 +89,7 @@ private:
     MotorControl* pMotorControl = nullptr;
     MotorSettingsManager* pMotorSettingsManager = nullptr;
     WiFiManager* pWiFiManager = nullptr;
+    StatusLED* pStatusLED = nullptr;
 
     bool running = false;
     unsigned long lastWSBroadcast = 0;

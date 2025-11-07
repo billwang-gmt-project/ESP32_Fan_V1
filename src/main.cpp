@@ -599,7 +599,8 @@ void setup() {
         const_cast<WiFiSettings*>(&wifiSettings),
         &motorControl,
         &motorSettingsManager,
-        &wifiManager
+        &wifiManager,
+        &statusLED
     )) {
         USBSerial.println("❌ Web server initialization failed!");
     } else {
@@ -658,7 +659,7 @@ void setup() {
     USBSerial.println("[INFO] 正在初始化 BLE...");
     statusLED.update();  // Update LED during initialization
 
-    BLEDevice::init("ESP32_S3_Console");
+    BLEDevice::init("ESP32-S3 Motor Control");
     pBLEServer = BLEDevice::createServer();
     pBLEServer->setCallbacks(new MyServerCallbacks());
 

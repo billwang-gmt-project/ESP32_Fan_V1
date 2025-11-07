@@ -9,7 +9,8 @@ WebServerManager::WebServerManager() {
 bool WebServerManager::begin(WiFiSettings* wifiSettings,
                              MotorControl* motorControl,
                              MotorSettingsManager* motorSettingsManager,
-                             WiFiManager* wifiManager) {
+                             WiFiManager* wifiManager,
+                             StatusLED* statusLED) {
     if (!wifiSettings || !motorControl || !motorSettingsManager || !wifiManager) {
         Serial.println("❌ WebServerManager::begin() - NULL pointer!");
         return false;
@@ -19,6 +20,7 @@ bool WebServerManager::begin(WiFiSettings* wifiSettings,
     pMotorControl = motorControl;
     pMotorSettingsManager = motorSettingsManager;
     pWiFiManager = wifiManager;
+    pStatusLED = statusLED;
 
     // Create server instance
     server = new AsyncWebServer(wifiSettings->web_port);
@@ -598,6 +600,7 @@ void WebServerManager::handleGetConfig(AsyncWebServerRequest *request) {
         // Motor settings - use CURRENT values from MotorControl, not saved settings
         doc["polePairs"] = settings.polePairs;
         doc["maxFrequency"] = settings.maxFrequency;
+        doc["maxSafeRPM"] = settings.maxSafeRPM;  // Max RPM protection threshold
         doc["frequency"] = pMotorControl->getPWMFrequency();  // Current actual frequency
         doc["duty"] = pMotorControl->getPWMDuty();            // Current actual duty
 
@@ -609,9 +612,23 @@ void WebServerManager::handleGetConfig(AsyncWebServerRequest *request) {
         if (pWiFiSettings) {
             bool apMode = (pWiFiSettings->mode == WiFiMode::AP || pWiFiSettings->mode == WiFiMode::AP_STA);
             doc["apModeEnabled"] = apMode;
+
+            // WiFi Station settings - send empty string if not set
+            if (strlen(pWiFiSettings->sta_ssid) > 0) {
+                doc["wifiSSID"] = pWiFiSettings->sta_ssid;
+            } else {
+                doc["wifiSSID"] = "";
+            }
+            // Password is always sent as empty (for security)
+            doc["wifiPassword"] = "";
         } else {
             doc["apModeEnabled"] = false;
+            doc["wifiSSID"] = "";
+            doc["wifiPassword"] = "";
         }
+
+        // BLE device name - hardcoded for now, will be configurable in future
+        doc["bleDeviceName"] = "ESP32-S3 Motor Control";
     }
 
     String json;
@@ -623,11 +640,13 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
     // This handler is called after body is parsed
     // Check if we have JSON body data
     bool updated = false;
+    String updateMessage = "";
 
-    // Handle form parameters (ledBrightness, chartUpdateRate)
+    // Handle form parameters (ledBrightness, chartUpdateRate) - legacy support
     if (request->hasParam("ledBrightness", true)) {
         uint8_t brightness = request->getParam("ledBrightness", true)->value().toInt();
         pMotorSettingsManager->get().ledBrightness = brightness;
+        // Note: LED brightness not applied here - requires StatusLED access
         updated = true;
     }
 
@@ -637,25 +656,97 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
         updated = true;
     }
 
-    // For JSON body (language), we need to handle it differently
-    // The body is parsed in the onBody callback
+    // Handle JSON body (from settings page)
     if (request->_tempObject != nullptr) {
         String* bodyStr = (String*)request->_tempObject;
 
-        StaticJsonDocument<256> doc;
+        StaticJsonDocument<1024> doc;
         DeserializationError error = deserializeJson(doc, *bodyStr);
 
         if (!error) {
+            // Update MotorSettings fields
             if (doc.containsKey("language")) {
                 const char* lang = doc["language"];
                 strncpy(pMotorSettingsManager->get().language, lang, sizeof(pMotorSettingsManager->get().language) - 1);
                 pMotorSettingsManager->get().language[sizeof(pMotorSettingsManager->get().language) - 1] = '\0';
-
-                // Save language to NVS immediately
-                pMotorSettingsManager->save();
-
-                updated = true;
                 Serial.printf("✅ Language updated to: %s\n", lang);
+                updated = true;
+            }
+
+            if (doc.containsKey("ledBrightness")) {
+                uint8_t brightness = doc["ledBrightness"];
+                pMotorSettingsManager->get().ledBrightness = brightness;
+
+                // Apply brightness to actual LED immediately
+                if (pStatusLED) {
+                    pStatusLED->setBrightness(brightness);
+                    Serial.printf("✅ LED brightness updated and applied: %d\n", brightness);
+                } else {
+                    Serial.printf("✅ LED brightness updated to: %d (LED not available)\n", brightness);
+                }
+                updated = true;
+            }
+
+            if (doc.containsKey("rpmUpdateRate")) {
+                uint32_t rate = doc["rpmUpdateRate"];
+                pMotorSettingsManager->get().rpmUpdateRate = rate;
+                Serial.printf("✅ RPM update rate set to: %u ms\n", rate);
+                updated = true;
+            }
+
+            if (doc.containsKey("polePairs")) {
+                uint8_t polePairs = doc["polePairs"];
+                pMotorSettingsManager->get().polePairs = polePairs;
+                if (pMotorControl) {
+                    pMotorControl->setPolePairs(polePairs);
+                    Serial.printf("✅ Pole pairs set to: %d\n", polePairs);
+                }
+                updated = true;
+            }
+
+            if (doc.containsKey("maxFrequency")) {
+                uint32_t maxFreq = doc["maxFrequency"];
+                pMotorSettingsManager->get().maxFrequency = maxFreq;
+                Serial.printf("✅ Max frequency set to: %u Hz\n", maxFreq);
+                updated = true;
+            }
+
+            if (doc.containsKey("maxSafeRPM")) {
+                uint32_t maxRPM = doc["maxSafeRPM"];
+                pMotorSettingsManager->get().maxSafeRPM = maxRPM;
+                Serial.printf("✅ Max safe RPM set to: %u\n", maxRPM);
+                updated = true;
+            }
+
+            // WiFi settings
+            if (doc.containsKey("wifiSSID") || doc.containsKey("wifiPassword")) {
+                // Note: WiFi settings need WiFiSettingsManager access
+                // For now, log that we received them
+                if (doc.containsKey("wifiSSID")) {
+                    const char* ssid = doc["wifiSSID"];
+                    Serial.printf("📡 WiFi SSID received: %s\n", ssid);
+                    // TODO: Save to WiFiSettings via WiFiSettingsManager
+                }
+                if (doc.containsKey("wifiPassword")) {
+                    Serial.println("📡 WiFi password received");
+                    // TODO: Save to WiFiSettings via WiFiSettingsManager
+                }
+                updateMessage += "WiFi settings require implementation. ";
+            }
+
+            // BLE device name
+            if (doc.containsKey("bleDeviceName")) {
+                const char* bleName = doc["bleDeviceName"];
+                Serial.printf("📶 BLE device name received: %s\n", bleName);
+                // Note: BLE name requires BLEDevice access to update
+                // TODO: Update BLE device name dynamically
+                updateMessage += "BLE name requires implementation. ";
+            }
+
+            // Save settings to NVS if anything changed
+            if (updated) {
+                pMotorSettingsManager->save();
+                Serial.println("💾 Settings saved to NVS");
             }
         }
 
@@ -664,7 +755,12 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
     }
 
     if (updated) {
-        request->send(200, "application/json", "{\"success\":true,\"message\":\"Configuration updated\"}");
+        String response = "{\"success\":true,\"message\":\"Configuration updated";
+        if (updateMessage.length() > 0) {
+            response += " (" + updateMessage + ")";
+        }
+        response += "\"}";
+        request->send(200, "application/json", response);
     } else {
         request->send(400, "application/json", "{\"success\":false,\"error\":\"No valid parameters\"}");
     }
