@@ -433,7 +433,6 @@
                 <div class="peripheral-card">
                     <div class="card-header">
                         <span class="card-title">📡 UART1 Multiplexer</span>
-                        <span id="uart1Mode" class="status-badge mode">DISABLED</span>
                     </div>
 
                     <div class="control-group">
@@ -653,10 +652,13 @@
 
     <script>
         let updateInterval = null;
-        let uart1ModeChangeTime = 0;  // Timestamp of last manual mode change
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
+            // Set default UART1 mode to PWM (matches device startup default)
+            document.getElementById('uart1ModeSelect').value = 'PWM';
+            updateUART1ModeDisplay('PWM');
+
             initializeControls();
             fetchAllStatus();
             startAutoUpdate();
@@ -689,7 +691,6 @@
 
             // UART1 mode selector
             document.getElementById('uart1ModeSelect').addEventListener('change', function() {
-                uart1ModeChangeTime = Date.now();  // Record manual change time
                 updateUART1ModeDisplay(this.value);
             });
         }
@@ -725,27 +726,8 @@
         function updatePeripheralStatus(data) {
             // UART1
             if (data.uart1) {
-                // Update status badge
-                document.getElementById('uart1Mode').textContent = data.uart1.mode || 'DISABLED';
-
-                // Only sync combobox if it wasn't manually changed in the last 3 seconds
-                const timeSinceChange = Date.now() - uart1ModeChangeTime;
-                if (timeSinceChange > 3000) {
-                    // Sync combobox with current mode
-                    const modeSelect = document.getElementById('uart1ModeSelect');
-                    let modeValue = 'DISABLED';
-                    if (data.uart1.mode === 'PWM_RPM' || data.uart1.mode === 'PWM/RPM') {
-                        modeValue = 'PWM';
-                    } else if (data.uart1.mode === 'UART') {
-                        modeValue = 'UART';
-                    } else if (data.uart1.mode === 'DISABLED') {
-                        modeValue = 'DISABLED';
-                    }
-                    modeSelect.value = modeValue;
-
-                    // Update control visibility
-                    updateUART1ModeDisplay(modeValue);
-                }
+                // Note: Dropdown is NOT synced from status updates
+                // It's purely for user control to avoid interference during mode changes
 
                 // Update PWM/RPM specific data
                 if (data.uart1.mode === 'PWM_RPM' && data.uart1.rpm_freq !== undefined) {
@@ -863,7 +845,6 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    uart1ModeChangeTime = 0;  // Reset timestamp to allow status update
                     showAlert('UART1 mode changed successfully', 'success');
                     fetchAllStatus();
                 } else {
