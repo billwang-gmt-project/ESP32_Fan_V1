@@ -10,7 +10,7 @@ extern PeripheralManager peripheralManager;
 
 void CommandParser::handleUART1Mode(const String& cmd, ICommandResponse* response) {
     // Extract mode parameter
-    int spaceIndex = cmd.indexOf(' ', 11);  // After "UART1 MODE "
+    int spaceIndex = cmd.lastIndexOf(' ');  // Find last space to get the mode parameter
     if (spaceIndex == -1) {
         response->println("Usage: UART1 MODE <UART|PWM|OFF>");
         return;
@@ -429,7 +429,7 @@ void CommandParser::handleKeysConfig(const String& cmd, ICommandResponse* respon
 
 void CommandParser::handleKeysMode(const String& cmd, ICommandResponse* response) {
     // KEYS MODE <DUTY|FREQ>
-    int idx = cmd.indexOf(' ', 10);  // After "KEYS MODE "
+    int idx = cmd.lastIndexOf(' ');  // Find last space to get the mode parameter
     if (idx == -1) {
         response->println("Usage: KEYS MODE <DUTY|FREQ>");
         return;
