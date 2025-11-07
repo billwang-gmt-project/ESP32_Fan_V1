@@ -482,12 +482,7 @@ void CommandParser::handlePeripheralStats(ICommandResponse* response) {
 // ============================================================================
 
 void CommandParser::handlePeripheralSave(ICommandResponse* response) {
-    if (!pPeripheralManager) {
-        response->println("ERROR: Peripheral manager not available");
-        return;
-    }
-
-    if (pPeripheralManager->saveSettings()) {
+    if (peripheralManager.saveSettings()) {
         response->println("OK: Peripheral settings saved to NVS");
     } else {
         response->println("ERROR: Failed to save peripheral settings");
@@ -495,14 +490,9 @@ void CommandParser::handlePeripheralSave(ICommandResponse* response) {
 }
 
 void CommandParser::handlePeripheralLoad(ICommandResponse* response) {
-    if (!pPeripheralManager) {
-        response->println("ERROR: Peripheral manager not available");
-        return;
-    }
-
-    if (pPeripheralManager->loadSettings()) {
+    if (peripheralManager.loadSettings()) {
         response->println("OK: Peripheral settings loaded from NVS");
-        if (pPeripheralManager->applySettings()) {
+        if (peripheralManager.applySettings()) {
             response->println("OK: Settings applied to all peripherals");
         } else {
             response->println("WARNING: Some settings may not have been applied");
@@ -513,12 +503,7 @@ void CommandParser::handlePeripheralLoad(ICommandResponse* response) {
 }
 
 void CommandParser::handlePeripheralReset(ICommandResponse* response) {
-    if (!pPeripheralManager) {
-        response->println("ERROR: Peripheral manager not available");
-        return;
-    }
-
-    pPeripheralManager->resetSettings();
+    peripheralManager.resetSettings();
     response->println("OK: Peripheral settings reset to defaults");
     response->println("INFO: Use 'PERIPHERAL LOAD' to apply default settings");
 }
