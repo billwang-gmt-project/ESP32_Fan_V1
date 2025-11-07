@@ -859,6 +859,7 @@
         let debounceTimer;
         let syncTimer; // Timer for cross-page synchronization
         let displayMode = 'rpm'; // 'rpm' or 'freq' (real input frequency)
+        let isEmergencyStopActive = false; // Track emergency stop status
 
         // RPM Monitor variables
         let rpmChart = null;
@@ -1728,25 +1729,36 @@
         
         // Update PWM settings
         async function updatePWM() {
+            // Safety check: Prevent PWM changes during emergency stop
+            if (isEmergencyStopActive) {
+                showToast(
+                    currentLanguage === 'zh-CN'
+                        ? '⚠️ 紧急停止激活中！请先清除错误。'
+                        : '⚠️ Emergency stop is active! Please clear the error first.',
+                    'error'
+                );
+                return;
+            }
+
             const frequency = parseInt(elements.freqInput.value);
             const duty = parseFloat(elements.dutyInput.value);
-            
+
             try {
                 const formData = new FormData();
                 formData.append('frequency', frequency);
                 formData.append('duty', duty);
-                
+
                 const response = await fetch('/api/pwm', {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (response.ok && data.success === true) {
                     updateStatusDisplay();
                     showToast('PWM settings updated successfully', 'success');
-                    
+
                     // Save to localStorage for cross-page synchronization
                     localStorage.setItem('currentDuty', duty.toString());
                     localStorage.setItem('currentFrequency', frequency.toString());
@@ -1857,6 +1869,7 @@
                 // Handle emergency stop status
                 const errorBanner = document.getElementById('errorBanner');
                 if (data.emergencyStop !== undefined) {
+                    isEmergencyStopActive = data.emergencyStop;  // Update global state
                     if (data.emergencyStop) {
                         errorBanner.classList.add('show');
                     } else {

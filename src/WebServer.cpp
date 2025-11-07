@@ -370,6 +370,13 @@ void WebServerManager::handleGetSettings(AsyncWebServerRequest *request) {
 }
 
 void WebServerManager::handleSetPWMFreq(AsyncWebServerRequest *request) {
+    // Safety check: Prevent frequency changes during emergency stop
+    if (pMotorControl->isEmergencyStopActive()) {
+        request->send(403, "application/json",
+            "{\"error\":\"Cannot set frequency while emergency stop is active. Please clear the error first.\"}");
+        return;
+    }
+
     if (!request->hasParam("value", true)) {
         request->send(400, "application/json", "{\"error\":\"Missing value parameter\"}");
         return;
@@ -385,6 +392,13 @@ void WebServerManager::handleSetPWMFreq(AsyncWebServerRequest *request) {
 }
 
 void WebServerManager::handleSetPWMDuty(AsyncWebServerRequest *request) {
+    // Safety check: Prevent duty changes during emergency stop
+    if (pMotorControl->isEmergencyStopActive()) {
+        request->send(403, "application/json",
+            "{\"error\":\"Cannot set duty while emergency stop is active. Please clear the error first.\"}");
+        return;
+    }
+
     if (!request->hasParam("value", true)) {
         request->send(400, "application/json", "{\"error\":\"Missing value parameter\"}");
         return;
