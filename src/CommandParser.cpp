@@ -400,6 +400,20 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
         return true;
     }
 
+    // Peripheral Settings Commands
+    if (upper == "PERIPHERAL SAVE") {
+        handlePeripheralSave(response);
+        return true;
+    }
+    if (upper == "PERIPHERAL LOAD") {
+        handlePeripheralLoad(response);
+        return true;
+    }
+    if (upper == "PERIPHERAL RESET") {
+        handlePeripheralReset(response);
+        return true;
+    }
+
     // 未知命令
     response->print("未知命令: ");
     response->println(trimmed.c_str());
@@ -536,6 +550,9 @@ void CommandParser::handleHelp(ICommandResponse* response) {
     response->println("  KEYS MODE <DUTY|FREQ>     - 設定按鍵控制模式");
     response->println("  PERIPHERAL STATUS         - 顯示所有週邊狀態");
     response->println("  PERIPHERAL STATS          - 顯示詳細統計");
+    response->println("  PERIPHERAL SAVE           - 保存外設設置到 NVS");
+    response->println("  PERIPHERAL LOAD           - 從 NVS 加載外設設置");
+    response->println("  PERIPHERAL RESET          - 重置外設設置為默認值");
     response->println("");
     response->println("支援的介面:");
     response->println("  - USB CDC (序列埠)");

@@ -476,3 +476,49 @@ void CommandParser::handlePeripheralStats(ICommandResponse* response) {
     String stats = peripheralManager.getStatistics();
     response->print(stats.c_str());
 }
+
+// ============================================================================
+// Peripheral Settings Commands
+// ============================================================================
+
+void CommandParser::handlePeripheralSave(ICommandResponse* response) {
+    if (!pPeripheralManager) {
+        response->println("ERROR: Peripheral manager not available");
+        return;
+    }
+
+    if (pPeripheralManager->saveSettings()) {
+        response->println("OK: Peripheral settings saved to NVS");
+    } else {
+        response->println("ERROR: Failed to save peripheral settings");
+    }
+}
+
+void CommandParser::handlePeripheralLoad(ICommandResponse* response) {
+    if (!pPeripheralManager) {
+        response->println("ERROR: Peripheral manager not available");
+        return;
+    }
+
+    if (pPeripheralManager->loadSettings()) {
+        response->println("OK: Peripheral settings loaded from NVS");
+        if (pPeripheralManager->applySettings()) {
+            response->println("OK: Settings applied to all peripherals");
+        } else {
+            response->println("WARNING: Some settings may not have been applied");
+        }
+    } else {
+        response->println("ERROR: Failed to load peripheral settings");
+    }
+}
+
+void CommandParser::handlePeripheralReset(ICommandResponse* response) {
+    if (!pPeripheralManager) {
+        response->println("ERROR: Peripheral manager not available");
+        return;
+    }
+
+    pPeripheralManager->resetSettings();
+    response->println("OK: Peripheral settings reset to defaults");
+    response->println("INFO: Use 'PERIPHERAL LOAD' to apply default settings");
+}

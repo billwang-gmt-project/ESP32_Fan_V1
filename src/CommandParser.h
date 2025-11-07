@@ -92,6 +92,11 @@ private:
     void handleKeysMode(const String& cmd, ICommandResponse* response);
     void handlePeripheralStatus(ICommandResponse* response);
     void handlePeripheralStats(ICommandResponse* response);
+
+    // Peripheral settings commands
+    void handlePeripheralSave(ICommandResponse* response);
+    void handlePeripheralLoad(ICommandResponse* response);
+    void handlePeripheralReset(ICommandResponse* response);
 };
 
 // CDC 回應實作

@@ -515,6 +515,27 @@ void setup() {
         // Non-critical - system can continue without peripherals
     } else {
         USBSerial.println("✅ Peripheral manager initialized successfully");
+
+        // Initialize peripheral settings
+        if (peripheralManager.beginSettings()) {
+            USBSerial.println("✅ Peripheral settings manager initialized");
+
+            // Load settings from NVS
+            if (peripheralManager.loadSettings()) {
+                USBSerial.println("✅ Peripheral settings loaded from NVS");
+
+                // Apply settings to all peripherals
+                if (peripheralManager.applySettings()) {
+                    USBSerial.println("✅ Peripheral settings applied");
+                } else {
+                    USBSerial.println("⚠️ Some peripheral settings may not have been applied");
+                }
+            } else {
+                USBSerial.println("ℹ️ Using default peripheral settings");
+            }
+        } else {
+            USBSerial.println("❌ Peripheral settings manager initialization failed");
+        }
     }
 
     // ========== 步驟 2: 創建 FreeRTOS 資源（必須在 BLE 初始化之前！）==========
