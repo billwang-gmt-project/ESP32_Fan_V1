@@ -47,20 +47,20 @@ struct WiFiSettings {
  * @brief Default WiFi settings
  */
 namespace WiFiDefaults {
-    const WiFiMode MODE = WiFiMode::AP;
-    const char* AP_SSID = "ESP32-Motor-Control";
-    const char* AP_PASSWORD = "12345678";  // Minimum 8 characters for WPA2
-    const uint8_t AP_CHANNEL = 1;
-    const char* STA_SSID = "";
-    const char* STA_PASSWORD = "";
-    const bool STA_DHCP = true;
-    const char* STA_IP = "192.168.1.100";
-    const char* STA_GATEWAY = "192.168.1.1";
-    const char* STA_SUBNET = "255.255.255.0";
-    const uint16_t WEB_PORT = 80;
-    const bool WEB_AUTH_ENABLED = false;
-    const char* WEB_USERNAME = "admin";
-    const char* WEB_PASSWORD = "admin";
+    extern const WiFiMode MODE;
+    extern const char* AP_SSID;
+    extern const char* AP_PASSWORD;
+    extern const uint8_t AP_CHANNEL;
+    extern const char* STA_SSID;
+    extern const char* STA_PASSWORD;
+    extern const bool STA_DHCP;
+    extern const char* STA_IP;
+    extern const char* STA_GATEWAY;
+    extern const char* STA_SUBNET;
+    extern const uint16_t WEB_PORT;
+    extern const bool WEB_AUTH_ENABLED;
+    extern const char* WEB_USERNAME;
+    extern const char* WEB_PASSWORD;
 }
 
 /**

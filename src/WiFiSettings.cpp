@@ -1,5 +1,23 @@
 #include "WiFiSettings.h"
 
+// Define WiFiDefaults constants
+namespace WiFiDefaults {
+    const WiFiMode MODE = WiFiMode::AP;
+    const char* AP_SSID = "ESP32-Motor-Control";
+    const char* AP_PASSWORD = "12345678";  // Minimum 8 characters for WPA2
+    const uint8_t AP_CHANNEL = 1;
+    const char* STA_SSID = "";
+    const char* STA_PASSWORD = "";
+    const bool STA_DHCP = true;
+    const char* STA_IP = "192.168.1.100";
+    const char* STA_GATEWAY = "192.168.1.1";
+    const char* STA_SUBNET = "255.255.255.0";
+    const uint16_t WEB_PORT = 80;
+    const bool WEB_AUTH_ENABLED = false;
+    const char* WEB_USERNAME = "admin";
+    const char* WEB_PASSWORD = "admin";
+}
+
 const char* WiFiSettingsManager::NVS_NAMESPACE = "wifi";
 
 WiFiSettingsManager::WiFiSettingsManager() {
