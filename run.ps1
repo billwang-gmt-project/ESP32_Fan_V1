@@ -15,8 +15,8 @@ param(
 
 function Write-DebugInfo {
     Write-Host "--- run.ps1 debug info ---"
-    Write-Host "Script path: $($MyInvocation.MyCommand.Path)"
-    Write-Host "Script directory: $(Split-Path -Parent $MyInvocation.MyCommand.Path)"
+    Write-Host "Script path: $($PSCommandPath)"
+    Write-Host "Script directory: $PSScriptRoot"
     Write-Host "Working directory: $(Get-Location)"
     Write-Host "PowerShell Version: $($PSVersionTable.PSVersion)"
     Write-Host "OS: $([System.Environment]::OSVersion)"
@@ -49,31 +49,6 @@ function Run-Check($command) {
 Write-DebugInfo
 
 # Execute the PlatformIO steps
-Run-Check "pio run -t clean"
-Run-Check "pio run"
-Run-Check "pio run --target upload"
-Run-Check "pio run --target uploadfs"
-
-Write-Host "All PlatformIO tasks completed successfully."
-if (-not $NoPause) { Read-Host -Prompt "Press Enter to close" }
-# D:\github\ESP32\fw\Motor_Control_V1\scripts\build_and_upload.ps1
-# PowerShell script to run PlatformIO tasks from the project root.
-param(
-    [switch] $NoPause
-)
-
-Write-Host "Running PlatformIO tasks in $(Get-Location) ..."
-
-function Run-Check($command) {
-    Write-Host "-> $command"
-    & cmd /c $command
-    $ec = $LASTEXITCODE
-    if ($ec -ne 0) {
-        Write-Error "Command failed: $command (exit $ec)"
-        exit $ec
-    }
-}
-
 Run-Check "pio run -t clean"
 Run-Check "pio run"
 Run-Check "pio run --target upload"
