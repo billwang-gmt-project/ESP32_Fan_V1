@@ -64,6 +64,8 @@ private:
     void handleFilterStatus(ICommandResponse* response);
 
     // WiFi and Web Server commands (WiFi Web Server feature)
+    void handleWiFiConnect(const String& cmd, ICommandResponse* response);
+    void handleIPAddress(ICommandResponse* response);
     void handleWiFiStatus(ICommandResponse* response);
     void handleWiFiStart(ICommandResponse* response);
     void handleWiFiStop(ICommandResponse* response);
