@@ -568,6 +568,9 @@
             // 載入設置
             loadSettings();
 
+            // 定期更新設置（每 5 秒輪詢，確保與控制台命令同步）
+            setInterval(updateSettingsQuietly, 5000);
+
             // 載入系統狀態
             updateSystemStatus();
             setInterval(updateSystemStatus, 2000);
@@ -633,6 +636,52 @@
                 showMessage('設置載入成功 / Settings loaded successfully', 'success');
             } catch (error) {
                 showMessage('載入設置失敗 / Failed to load settings: ' + error.message, 'error');
+            }
+        }
+
+        // 靜默更新設置（用於定期輪詢，不顯示成功消息，不覆蓋正在編輯的欄位）
+        async function updateSettingsQuietly() {
+            try {
+                const response = await fetch('/api/config');
+                const data = await response.json();
+
+                // 只更新沒有焦點的欄位（用戶不在編輯中）
+                const updateIfNotFocused = (id, value) => {
+                    const element = document.getElementById(id);
+                    if (element && document.activeElement !== element) {
+                        element.value = value || '';
+                    }
+                };
+
+                updateIfNotFocused('title', data.title);
+                updateIfNotFocused('subtitle', data.subtitle);
+                updateIfNotFocused('bleDeviceName', data.bleDeviceName);
+                updateIfNotFocused('dutyStepSize', data.dutyStepSize || 1.0);
+                updateIfNotFocused('freqStepSize', data.freqStepSize || 10);
+                updateIfNotFocused('maxFrequency', data.maxFrequency || 100000);
+                updateIfNotFocused('maxSafeRPM', data.maxSafeRPM || 500000);
+                updateIfNotFocused('polePairs', data.polePairs || 2);
+                updateIfNotFocused('rpmUpdateRate', data.rpmUpdateRate || 100);
+                updateIfNotFocused('wifiSSID', data.wifiSSID);
+                updateIfNotFocused('wifiPassword', data.wifiPassword);
+
+                // LED brightness 特殊處理（同時更新滑桿和顯示值）
+                const ledBrightnessEl = document.getElementById('ledBrightness');
+                if (ledBrightnessEl && document.activeElement !== ledBrightnessEl) {
+                    const brightness = data.ledBrightness || 25;
+                    ledBrightnessEl.value = brightness;
+                    document.getElementById('ledBrightnessValue').textContent = brightness;
+                }
+
+                // 更新 AP 模式（checkbox 不需要檢查焦點）
+                const apResponse = await fetch('/api/ap-mode');
+                const apData = await apResponse.json();
+                if (apData.success) {
+                    document.getElementById('apModeEnabled').checked = apData.enabled || false;
+                }
+            } catch (error) {
+                // 靜默失敗，不顯示錯誤消息（避免干擾用戶）
+                console.error('Failed to update settings quietly:', error);
             }
         }
 
