@@ -7,6 +7,9 @@
 #include "MotorControl.h"
 #include "MotorSettings.h"
 #include "StatusLED.h"
+#include "WiFiSettings.h"
+#include "WiFiManager.h"
+#include "WebServer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -76,6 +79,11 @@ MotorSettingsManager motorSettingsManager;
 
 // Status LED instance
 StatusLED statusLED;
+
+// WiFi and Web Server instances
+WiFiSettingsManager wifiSettingsManager;
+WiFiManager wifiManager;
+WebServerManager webServerManager;
 
 // BLE Server Callbacks
 class MyServerCallbacks: public BLEServerCallbacks {
