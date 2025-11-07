@@ -1404,3 +1404,314 @@ String WebServerManager::generateIndexHTML() {
 </html>
 )rawliteral";
 }
+
+// ============================================================================
+// Peripheral API Handlers
+// ============================================================================
+
+void WebServerManager::handleGetPeripheralStatus(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    StaticJsonDocument<1024> doc;
+
+    // UART1 Status
+    auto& uart1 = pPeripheralManager->getUART1();
+    JsonObject uart1Obj = doc.createNestedObject("uart1");
+
+    UART1Mux::Mode mode = uart1.getMode();
+    if (mode == UART1Mux::MODE_DISABLED) {
+        uart1Obj["mode"] = "DISABLED";
+    } else if (mode == UART1Mux::MODE_UART) {
+        uart1Obj["mode"] = "UART";
+        uart1Obj["baud"] = uart1.getUARTBaudRate();
+        uint32_t tx, rx, err;
+        uart1.getUARTStatistics(&tx, &rx, &err);
+        uart1Obj["tx_bytes"] = tx;
+        uart1Obj["rx_bytes"] = rx;
+        uart1Obj["errors"] = err;
+    } else if (mode == UART1Mux::MODE_PWM_RPM) {
+        uart1Obj["mode"] = "PWM_RPM";
+        uart1Obj["pwm_freq"] = uart1.getPWMFrequency();
+        uart1Obj["pwm_duty"] = uart1.getPWMDuty();
+        uart1Obj["pwm_enabled"] = uart1.isPWMEnabled();
+        uart1Obj["rpm_freq"] = uart1.getRPMFrequency();
+        uart1Obj["rpm_signal"] = uart1.hasRPMSignal();
+    }
+
+    // UART2 Status
+    auto& uart2 = pPeripheralManager->getUART2();
+    JsonObject uart2Obj = doc.createNestedObject("uart2");
+    uart2Obj["baud"] = uart2.getBaudRate();
+    uint32_t tx, rx, err;
+    uart2.getStatistics(&tx, &rx, &err);
+    uart2Obj["tx_bytes"] = tx;
+    uart2Obj["rx_bytes"] = rx;
+    uart2Obj["errors"] = err;
+
+    // Buzzer Status
+    auto& buzzer = pPeripheralManager->getBuzzer();
+    JsonObject buzzerObj = doc.createNestedObject("buzzer");
+    buzzerObj["enabled"] = buzzer.isEnabled();
+    buzzerObj["frequency"] = buzzer.getFrequency();
+    buzzerObj["duty"] = buzzer.getDuty();
+
+    // LED PWM Status
+    auto& led = pPeripheralManager->getLEDPWM();
+    JsonObject ledObj = doc.createNestedObject("led");
+    ledObj["enabled"] = led.isEnabled();
+    ledObj["frequency"] = led.getFrequency();
+    ledObj["brightness"] = led.getBrightness();
+
+    // Relay Status
+    auto& relay = pPeripheralManager->getRelay();
+    JsonObject relayObj = doc.createNestedObject("relay");
+    relayObj["state"] = relay.getState();
+
+    // GPIO Status
+    auto& gpio = pPeripheralManager->getGPIO();
+    JsonObject gpioObj = doc.createNestedObject("gpio");
+    gpioObj["state"] = gpio.getState();
+
+    // Keys Status
+    auto& keys = pPeripheralManager->getKeys();
+    JsonObject keysObj = doc.createNestedObject("keys");
+    keysObj["key1"] = (keys.getKeyState(UserKeys::KEY1) == UserKeys::PRESSED);
+    keysObj["key2"] = (keys.getKeyState(UserKeys::KEY2) == UserKeys::PRESSED);
+    keysObj["key3"] = (keys.getKeyState(UserKeys::KEY3) == UserKeys::PRESSED);
+    keysObj["mode"] = pPeripheralManager->isKeyControlAdjustingDuty() ? "DUTY" : "FREQ";
+    keysObj["control_enabled"] = pPeripheralManager->isKeyControlEnabled();
+    keysObj["duty_step"] = pPeripheralManager->getDutyStep();
+    keysObj["freq_step"] = pPeripheralManager->getFrequencyStep();
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handleGetUART1Status(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    StaticJsonDocument<256> doc;
+    auto& uart1 = pPeripheralManager->getUART1();
+
+    UART1Mux::Mode mode = uart1.getMode();
+    if (mode == UART1Mux::MODE_DISABLED) {
+        doc["mode"] = "DISABLED";
+    } else if (mode == UART1Mux::MODE_UART) {
+        doc["mode"] = "UART";
+        doc["baud"] = uart1.getUARTBaudRate();
+    } else if (mode == UART1Mux::MODE_PWM_RPM) {
+        doc["mode"] = "PWM_RPM";
+        doc["pwm_freq"] = uart1.getPWMFrequency();
+        doc["pwm_duty"] = uart1.getPWMDuty();
+        doc["pwm_enabled"] = uart1.isPWMEnabled();
+    }
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handlePostUART1Mode(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    if (!request->hasParam("mode", true)) {
+        request->send(400, "application/json", "{\"error\":\"Missing mode parameter\"}");
+        return;
+    }
+
+    String mode = request->getParam("mode", true)->value();
+    mode.toUpperCase();
+
+    bool success = false;
+    if (mode == "UART") {
+        success = pPeripheralManager->getUART1().setModeUART(115200);
+    } else if (mode == "PWM" || mode == "PWM_RPM") {
+        success = pPeripheralManager->getUART1().setModePWM_RPM();
+    } else if (mode == "OFF" || mode == "DISABLED") {
+        pPeripheralManager->getUART1().disable();
+        success = true;
+    }
+
+    if (success) {
+        request->send(200, "application/json", "{\"success\":true}");
+    } else {
+        request->send(500, "application/json", "{\"error\":\"Failed to set mode\"}");
+    }
+}
+
+void WebServerManager::handlePostUART1PWM(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    if (!request->hasParam("frequency", true) || !request->hasParam("duty", true)) {
+        request->send(400, "application/json", "{\"error\":\"Missing frequency or duty parameter\"}");
+        return;
+    }
+
+    uint32_t freq = request->getParam("frequency", true)->value().toInt();
+    float duty = request->getParam("duty", true)->value().toFloat();
+
+    auto& uart1 = pPeripheralManager->getUART1();
+    bool success = uart1.setPWMFrequency(freq) && uart1.setPWMDuty(duty);
+
+    if (success) {
+        uart1.setPWMEnabled(true);
+        request->send(200, "application/json", "{\"success\":true}");
+    } else {
+        request->send(500, "application/json", "{\"error\":\"Failed to set PWM parameters\"}");
+    }
+}
+
+void WebServerManager::handleGetUART2Status(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    StaticJsonDocument<128> doc;
+    auto& uart2 = pPeripheralManager->getUART2();
+    doc["baud"] = uart2.getBaudRate();
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handlePostBuzzer(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    auto& buzzer = pPeripheralManager->getBuzzer();
+
+    if (request->hasParam("enabled", true)) {
+        bool enabled = request->getParam("enabled", true)->value() == "true";
+        buzzer.enable(enabled);
+    }
+
+    if (request->hasParam("frequency", true)) {
+        uint32_t freq = request->getParam("frequency", true)->value().toInt();
+        buzzer.setFrequency(freq);
+    }
+
+    if (request->hasParam("duty", true)) {
+        float duty = request->getParam("duty", true)->value().toFloat();
+        buzzer.setDuty(duty);
+    }
+
+    request->send(200, "application/json", "{\"success\":true}");
+}
+
+void WebServerManager::handlePostLEDPWM(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    auto& led = pPeripheralManager->getLEDPWM();
+
+    if (request->hasParam("enabled", true)) {
+        bool enabled = request->getParam("enabled", true)->value() == "true";
+        led.enable(enabled);
+    }
+
+    if (request->hasParam("brightness", true)) {
+        float brightness = request->getParam("brightness", true)->value().toFloat();
+        led.setBrightness(brightness);
+    }
+
+    request->send(200, "application/json", "{\"success\":true}");
+}
+
+void WebServerManager::handlePostRelay(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    if (!request->hasParam("action", true)) {
+        request->send(400, "application/json", "{\"error\":\"Missing action parameter\"}");
+        return;
+    }
+
+    String action = request->getParam("action", true)->value();
+    action.toUpperCase();
+
+    auto& relay = pPeripheralManager->getRelay();
+
+    if (action == "ON") {
+        relay.turnOn();
+    } else if (action == "OFF") {
+        relay.turnOff();
+    } else if (action == "TOGGLE") {
+        relay.toggle();
+    } else {
+        request->send(400, "application/json", "{\"error\":\"Invalid action\"}");
+        return;
+    }
+
+    request->send(200, "application/json", "{\"success\":true}");
+}
+
+void WebServerManager::handlePostGPIO(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    if (!request->hasParam("state", true)) {
+        request->send(400, "application/json", "{\"error\":\"Missing state parameter\"}");
+        return;
+    }
+
+    String state = request->getParam("state", true)->value();
+    state.toUpperCase();
+
+    auto& gpio = pPeripheralManager->getGPIO();
+
+    if (state == "HIGH" || state == "1") {
+        gpio.setHigh();
+    } else if (state == "LOW" || state == "0") {
+        gpio.setLow();
+    } else if (state == "TOGGLE") {
+        gpio.toggle();
+    } else {
+        request->send(400, "application/json", "{\"error\":\"Invalid state\"}");
+        return;
+    }
+
+    request->send(200, "application/json", "{\"success\":true}");
+}
+
+void WebServerManager::handleGetKeys(AsyncWebServerRequest *request) {
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not available\"}");
+        return;
+    }
+
+    StaticJsonDocument<256> doc;
+    auto& keys = pPeripheralManager->getKeys();
+
+    doc["key1"] = (keys.getKeyState(UserKeys::KEY1) == UserKeys::PRESSED);
+    doc["key2"] = (keys.getKeyState(UserKeys::KEY2) == UserKeys::PRESSED);
+    doc["key3"] = (keys.getKeyState(UserKeys::KEY3) == UserKeys::PRESSED);
+    doc["mode"] = pPeripheralManager->isKeyControlAdjustingDuty() ? "DUTY" : "FREQ";
+    doc["control_enabled"] = pPeripheralManager->isKeyControlEnabled();
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
