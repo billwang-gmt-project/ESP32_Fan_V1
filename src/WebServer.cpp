@@ -1478,9 +1478,9 @@ void WebServerManager::handleGetPeripheralStatus(AsyncWebServerRequest *request)
     // Keys Status
     auto& keys = pPeripheralManager->getKeys();
     JsonObject keysObj = doc.createNestedObject("keys");
-    keysObj["key1"] = (keys.getKeyState(UserKeys::KEY1) == UserKeys::PRESSED);
-    keysObj["key2"] = (keys.getKeyState(UserKeys::KEY2) == UserKeys::PRESSED);
-    keysObj["key3"] = (keys.getKeyState(UserKeys::KEY3) == UserKeys::PRESSED);
+    keysObj["key1"] = keys.isPressed(UserKeys::KEY1);
+    keysObj["key2"] = keys.isPressed(UserKeys::KEY2);
+    keysObj["key3"] = keys.isPressed(UserKeys::KEY3);
     keysObj["mode"] = pPeripheralManager->isKeyControlAdjustingDuty() ? "DUTY" : "FREQ";
     keysObj["control_enabled"] = pPeripheralManager->isKeyControlEnabled();
     keysObj["duty_step"] = pPeripheralManager->getDutyStep();
@@ -1705,9 +1705,9 @@ void WebServerManager::handleGetKeys(AsyncWebServerRequest *request) {
     StaticJsonDocument<256> doc;
     auto& keys = pPeripheralManager->getKeys();
 
-    doc["key1"] = (keys.getKeyState(UserKeys::KEY1) == UserKeys::PRESSED);
-    doc["key2"] = (keys.getKeyState(UserKeys::KEY2) == UserKeys::PRESSED);
-    doc["key3"] = (keys.getKeyState(UserKeys::KEY3) == UserKeys::PRESSED);
+    doc["key1"] = keys.isPressed(UserKeys::KEY1);
+    doc["key2"] = keys.isPressed(UserKeys::KEY2);
+    doc["key3"] = keys.isPressed(UserKeys::KEY3);
     doc["mode"] = pPeripheralManager->isKeyControlAdjustingDuty() ? "DUTY" : "FREQ";
     doc["control_enabled"] = pPeripheralManager->isKeyControlEnabled();
 
