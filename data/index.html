@@ -1337,11 +1337,17 @@
                 debouncedUpdate();
             });
             
+            // Frequency input: update slider display but only apply on Enter
             elements.freqInput.addEventListener('input', () => {
                 elements.freqSlider.value = elements.freqInput.value;
-                // Immediately update localStorage for cross-page synchronization
-                localStorage.setItem('currentFrequency', elements.freqInput.value);
-                debouncedUpdate();
+            });
+
+            elements.freqInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    // Immediately update localStorage for cross-page synchronization
+                    localStorage.setItem('currentFrequency', elements.freqInput.value);
+                    debouncedUpdate();
+                }
             });
             
             elements.freqUpBtn.addEventListener('click', () => {
@@ -1360,11 +1366,17 @@
                 debouncedUpdate();
             });
             
+            // Duty input: update slider display but only apply on Enter
             elements.dutyInput.addEventListener('input', () => {
                 elements.dutySlider.value = elements.dutyInput.value;
-                // Immediately update localStorage for cross-page synchronization
-                localStorage.setItem('currentDuty', elements.dutyInput.value);
-                debouncedUpdate();
+            });
+
+            elements.dutyInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    // Immediately update localStorage for cross-page synchronization
+                    localStorage.setItem('currentDuty', elements.dutyInput.value);
+                    debouncedUpdate();
+                }
             });
             
             elements.dutyUpBtn.addEventListener('click', () => {
