@@ -11,7 +11,9 @@
  */
 struct PeripheralSettings {
     // UART1 Multiplexer Settings
-    uint8_t uart1Mode = 0;              // 0=Disabled, 1=UART, 2=PWM_RPM
+    // NOTE: uart1Mode is saved to NVS but NOT applied at startup
+    // UART1 always defaults to PWM/RPM mode and can only be changed via commands
+    uint8_t uart1Mode = 0;              // 0=Disabled, 1=UART, 2=PWM_RPM (saved but not applied)
     uint32_t uart1Baud = 115200;        // UART mode baud rate (2400-1500000)
     uint32_t uart1PwmFreq = 1000;       // PWM mode frequency (1-500000 Hz)
     float uart1PwmDuty = 50.0;          // PWM mode duty cycle (0-100%)
