@@ -626,17 +626,6 @@
             </div>
         </div>
 
-        <!-- Emergency Stop Error Banner -->
-        <div class="error-banner" id="errorBanner">
-            <div class="error-banner-content">
-                <div>
-                    <span class="error-banner-icon">⛔</span>
-                    <span class="error-banner-text" id="errorBannerText">SAFETY ALERT: Emergency stop activated! Motor is stopped.</span>
-                </div>
-                <button class="btn-warning" onclick="clearError()" data-i18n="clear-error">Clear Error / Resume</button>
-            </div>
-        </div>
-
         <div class="container">
             <div class="header">
                 <div class="header-content">
@@ -696,7 +685,18 @@
                 </label>
             </div>
         </div>
-        
+
+        <!-- Emergency Stop Error Banner -->
+        <div class="error-banner" id="errorBanner">
+            <div class="error-banner-content">
+                <div>
+                    <span class="error-banner-icon">⛔</span>
+                    <span class="error-banner-text" id="errorBannerText">SAFETY ALERT: Emergency stop activated! Motor is stopped.</span>
+                </div>
+                <button class="btn-warning" onclick="clearError()" data-i18n="clear-error">Clear Error / Resume</button>
+            </div>
+        </div>
+
         <!-- RPM Monitor Section -->
         <div class="control-panel" id="rpmMonitorPanel" style="margin-top: 15px; display: none;">
             <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 0;">
