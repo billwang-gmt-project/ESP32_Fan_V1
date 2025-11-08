@@ -69,26 +69,51 @@ void CommandParser::handleUART1Config(const String& cmd, ICommandResponse* respo
 }
 
 void CommandParser::handleUART1PWM(const String& cmd, ICommandResponse* response) {
-    // UART1 PWM <freq> <duty>
+    // UART1 PWM <freq> <duty> [ON|OFF]
     int idx1 = cmd.indexOf(' ', 10);  // After "UART1 PWM "
     if (idx1 == -1) {
-        response->println("Usage: UART1 PWM <freq> <duty>");
+        response->println("Usage: UART1 PWM <freq> <duty> [ON|OFF]");
         return;
     }
 
     int idx2 = cmd.indexOf(' ', idx1 + 1);
     if (idx2 == -1) {
-        response->println("Usage: UART1 PWM <freq> <duty>");
+        response->println("Usage: UART1 PWM <freq> <duty> [ON|OFF]");
         return;
     }
 
+    // Parse frequency and duty
     uint32_t freq = cmd.substring(idx1 + 1, idx2).toInt();
-    float duty = cmd.substring(idx2 + 1).toFloat();
+
+    // Check if there's an optional ON/OFF parameter
+    String dutyStr = cmd.substring(idx2 + 1);
+    dutyStr.trim();
+    int idx3 = dutyStr.indexOf(' ');
+
+    float duty;
+    bool enablePWM = true;  // Default to enabled
+
+    if (idx3 != -1) {
+        // Has ON/OFF parameter
+        duty = dutyStr.substring(0, idx3).toFloat();
+        String enableStr = dutyStr.substring(idx3 + 1);
+        enableStr.trim();
+        enableStr.toUpperCase();
+
+        if (enableStr == "ON") {
+            enablePWM = true;
+        } else if (enableStr == "OFF") {
+            enablePWM = false;
+        }
+    } else {
+        // No ON/OFF parameter, just duty
+        duty = dutyStr.toFloat();
+    }
 
     if (peripheralManager.getUART1().setPWMFrequency(freq) &&
         peripheralManager.getUART1().setPWMDuty(duty)) {
-        response->printf("UART1 PWM: %u Hz, %.1f%% duty\n", freq, duty);
-        peripheralManager.getUART1().setPWMEnabled(true);
+        peripheralManager.getUART1().setPWMEnabled(enablePWM);
+        response->printf("UART1 PWM: %u Hz, %.1f%% duty, %s\n", freq, duty, enablePWM ? "enabled" : "disabled");
     } else {
         response->println("ERROR: Failed to set UART1 PWM parameters");
     }
@@ -193,40 +218,70 @@ void CommandParser::handleUART2Write(const String& cmd, ICommandResponse* respon
 // ============================================================================
 
 void CommandParser::handleBuzzerControl(const String& cmd, ICommandResponse* response) {
-    // BUZZER <freq> <duty> or BUZZER ON/OFF
+    // BUZZER <freq> <duty> [ON|OFF] or BUZZER ON/OFF
     int idx = cmd.indexOf(' ', 7);  // After "BUZZER "
     if (idx == -1) {
-        response->println("Usage: BUZZER <freq> <duty> | BUZZER ON | BUZZER OFF");
+        response->println("Usage: BUZZER <freq> <duty> [ON|OFF] | BUZZER ON | BUZZER OFF");
         return;
     }
 
     String param = cmd.substring(idx + 1);
     param.trim();
-    param.toUpperCase();
 
-    if (param == "ON") {
+    // Check if it's just ON/OFF toggle
+    String paramUpper = param;
+    paramUpper.toUpperCase();
+
+    if (paramUpper == "ON") {
         peripheralManager.getBuzzer().enable(true);
         response->println("Buzzer enabled");
-    } else if (param == "OFF") {
+        return;
+    } else if (paramUpper == "OFF") {
         peripheralManager.getBuzzer().enable(false);
         response->println("Buzzer disabled");
+        return;
+    }
+
+    // Parse frequency and duty with optional ON/OFF
+    int idx2 = param.indexOf(' ');
+    if (idx2 == -1) {
+        response->println("Usage: BUZZER <freq> <duty> [ON|OFF]");
+        return;
+    }
+
+    uint32_t freq = param.substring(0, idx2).toInt();
+
+    // Check if there's an optional ON/OFF parameter
+    String dutyStr = param.substring(idx2 + 1);
+    dutyStr.trim();
+    int idx3 = dutyStr.indexOf(' ');
+
+    float duty;
+    bool enableBuzzer = true;  // Default to enabled
+
+    if (idx3 != -1) {
+        // Has ON/OFF parameter
+        duty = dutyStr.substring(0, idx3).toFloat();
+        String enableStr = dutyStr.substring(idx3 + 1);
+        enableStr.trim();
+        enableStr.toUpperCase();
+
+        if (enableStr == "ON") {
+            enableBuzzer = true;
+        } else if (enableStr == "OFF") {
+            enableBuzzer = false;
+        }
     } else {
-        // Parse frequency and duty
-        int idx2 = param.indexOf(' ');
-        if (idx2 == -1) {
-            response->println("Usage: BUZZER <freq> <duty>");
-            return;
-        }
+        // No ON/OFF parameter, just duty
+        duty = dutyStr.toFloat();
+    }
 
-        uint32_t freq = param.substring(0, idx2).toInt();
-        float duty = param.substring(idx2 + 1).toFloat();
-
-        if (peripheralManager.getBuzzer().setFrequency(freq) &&
-            peripheralManager.getBuzzer().setDuty(duty)) {
-            response->printf("Buzzer: %u Hz, %.1f%% duty\n", freq, duty);
-        } else {
-            response->println("ERROR: Invalid buzzer parameters");
-        }
+    if (peripheralManager.getBuzzer().setFrequency(freq) &&
+        peripheralManager.getBuzzer().setDuty(duty)) {
+        peripheralManager.getBuzzer().enable(enableBuzzer);
+        response->printf("Buzzer: %u Hz, %.1f%% duty, %s\n", freq, duty, enableBuzzer ? "enabled" : "disabled");
+    } else {
+        response->println("ERROR: Invalid buzzer parameters");
     }
 }
 
@@ -256,39 +311,70 @@ void CommandParser::handleBuzzerBeep(const String& cmd, ICommandResponse* respon
 // ============================================================================
 
 void CommandParser::handleLEDPWM(const String& cmd, ICommandResponse* response) {
-    // LED_PWM <freq> <brightness> or LED_PWM ON/OFF
+    // LED_PWM <freq> <brightness> [ON|OFF] or LED_PWM ON/OFF
     int idx = cmd.indexOf(' ', 8);  // After "LED_PWM "
     if (idx == -1) {
-        response->println("Usage: LED_PWM <freq> <brightness> | LED_PWM ON | LED_PWM OFF");
+        response->println("Usage: LED_PWM <freq> <brightness> [ON|OFF] | LED_PWM ON | LED_PWM OFF");
         return;
     }
 
     String param = cmd.substring(idx + 1);
     param.trim();
-    param.toUpperCase();
 
-    if (param == "ON") {
+    // Check if it's just ON/OFF toggle
+    String paramUpper = param;
+    paramUpper.toUpperCase();
+
+    if (paramUpper == "ON") {
         peripheralManager.getLEDPWM().enable(true);
         response->println("LED PWM enabled");
-    } else if (param == "OFF") {
+        return;
+    } else if (paramUpper == "OFF") {
         peripheralManager.getLEDPWM().enable(false);
         response->println("LED PWM disabled");
+        return;
+    }
+
+    // Parse frequency and brightness with optional ON/OFF
+    int idx2 = param.indexOf(' ');
+    if (idx2 == -1) {
+        response->println("Usage: LED_PWM <freq> <brightness> [ON|OFF]");
+        return;
+    }
+
+    uint32_t freq = param.substring(0, idx2).toInt();
+
+    // Check if there's an optional ON/OFF parameter
+    String brightnessStr = param.substring(idx2 + 1);
+    brightnessStr.trim();
+    int idx3 = brightnessStr.indexOf(' ');
+
+    float brightness;
+    bool enableLED = true;  // Default to enabled
+
+    if (idx3 != -1) {
+        // Has ON/OFF parameter
+        brightness = brightnessStr.substring(0, idx3).toFloat();
+        String enableStr = brightnessStr.substring(idx3 + 1);
+        enableStr.trim();
+        enableStr.toUpperCase();
+
+        if (enableStr == "ON") {
+            enableLED = true;
+        } else if (enableStr == "OFF") {
+            enableLED = false;
+        }
     } else {
-        int idx2 = param.indexOf(' ');
-        if (idx2 == -1) {
-            response->println("Usage: LED_PWM <freq> <brightness>");
-            return;
-        }
+        // No ON/OFF parameter, just brightness
+        brightness = brightnessStr.toFloat();
+    }
 
-        uint32_t freq = param.substring(0, idx2).toInt();
-        float brightness = param.substring(idx2 + 1).toFloat();
-
-        if (peripheralManager.getLEDPWM().setFrequency(freq) &&
-            peripheralManager.getLEDPWM().setBrightness(brightness)) {
-            response->printf("LED PWM: %u Hz, %.1f%% brightness\n", freq, brightness);
-        } else {
-            response->println("ERROR: Invalid LED PWM parameters");
-        }
+    if (peripheralManager.getLEDPWM().setFrequency(freq) &&
+        peripheralManager.getLEDPWM().setBrightness(brightness)) {
+        peripheralManager.getLEDPWM().enable(enableLED);
+        response->printf("LED PWM: %u Hz, %.1f%% brightness, %s\n", freq, brightness, enableLED ? "enabled" : "disabled");
+    } else {
+        response->println("ERROR: Invalid LED PWM parameters");
     }
 }
 
