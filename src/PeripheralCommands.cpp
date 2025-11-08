@@ -111,7 +111,19 @@ void CommandParser::handleUART1PWM(const String& cmd, ICommandResponse* response
     if (peripheralManager.getUART1().setPWMFrequency(freq) &&
         peripheralManager.getUART1().setPWMDuty(duty)) {
         peripheralManager.getUART1().setPWMEnabled(enablePWM);
-        response->printf("UART1 PWM: %u Hz, %.1f%% duty, %s\n", freq, duty, enablePWM ? "enabled" : "disabled");
+
+        // Get actual frequency (may differ from requested due to hardware limitations)
+        uint32_t actualFreq = peripheralManager.getUART1().getPWMFrequency();
+        response->printf("UART1 PWM: %u Hz, %.1f%% duty, %s\n", actualFreq, duty, enablePWM ? "enabled" : "disabled");
+
+        // Warn if actual frequency differs significantly from requested
+        if (actualFreq != freq) {
+            float error = abs((int32_t)actualFreq - (int32_t)freq) * 100.0 / freq;
+            if (error > 5.0) {
+                response->printf("WARNING: Requested %u Hz, achieved %u Hz (%.1f%% difference)\n", freq, actualFreq, error);
+                response->println("Note: LEDC with 13-bit resolution limits max frequency to ~9.7 kHz");
+            }
+        }
     } else {
         response->println("ERROR: Failed to set UART1 PWM parameters");
     }
