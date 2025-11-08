@@ -50,6 +50,8 @@ This project uses a bilingual documentation strategy:
 - **CLAUDE.md** - English (for AI assistants and international developers)
 - **README.md, PROTOCOL.md, TESTING.md** - Traditional Chinese (for primary users)
 
+📖 **完整文件索引請參閱 [DOCS_INDEX.md](DOCS_INDEX.md)** - 幫助您快速找到所需文件
+
 ## 📋 系統需求
 
 ### 硬體

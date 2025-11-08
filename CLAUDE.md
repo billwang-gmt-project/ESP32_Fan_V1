@@ -1151,47 +1151,63 @@ python scripts/ble_client.py --scan
 
 ## Documentation
 
+📖 **For complete documentation navigation, see [DOCS_INDEX.md](DOCS_INDEX.md)** - A comprehensive guide to all project documentation.
+
 The project documentation is organized as follows:
 
 ### For Users and Developers
 
-- **[README.md](README.md)** - Project overview, quick start guide, and basic usage
+- **[README.md](README.md)** - Project overview, quick start guide, and basic usage (Traditional Chinese)
   - System requirements and hardware/software setup
   - Compilation and upload instructions
+  - **Complete command reference** (Basic, Motor, WiFi, Peripherals, Settings)
   - Quick testing guide
+  - Hardware pin definitions and connection recommendations
   - Architecture overview
   - Common troubleshooting
 
-- **[PROTOCOL.md](PROTOCOL.md)** - Detailed HID protocol specification
+- **[PROTOCOL.md](PROTOCOL.md)** - Detailed HID protocol specification (Traditional Chinese)
   - Packet format definitions (0xA1 and plain text protocols)
   - Command system architecture
   - Response routing mechanisms
   - FreeRTOS implementation details
   - Protocol version history
 
-- **[TESTING.md](TESTING.md)** - Complete testing guide
+- **[TESTING.md](TESTING.md)** - Complete testing guide (Traditional Chinese)
   - Test script usage (scripts/test_hid.py, scripts/test_cdc.py, scripts/test_all.py, scripts/ble_client.py)
+  - **Complete command reference for testing**
   - COM port filtering strategy
-  - Testing scenarios and verification procedures
+  - Testing scenarios and verification procedures (including peripheral testing)
   - Advanced testing techniques
   - Comprehensive troubleshooting
 
-### For AI Assistants
+### For AI Assistants and International Developers
 
-- **[CLAUDE.md](CLAUDE.md)** - This file - AI-assisted development guide
+- **[CLAUDE.md](CLAUDE.md)** - This file - AI-assisted development guide (English)
   - Critical configuration details
+  - **Complete command reference** (organized by category)
   - Code structure and architecture
   - Build commands and workflows
   - Implementation decisions and rationale
+  - Board variant configuration guide
+
+- **[DOCS_INDEX.md](DOCS_INDEX.md)** - Documentation navigation guide (Bilingual)
+  - Quick navigation by task/need
+  - Recommended reading order for different user types
+  - Documentation completeness checklist
+  - Cross-references and quick links
 
 ### Quick Reference
 
 | I want to... | Read this file |
 |-------------|---------------|
-| Get started quickly | README.md |
-| Understand HID protocol | PROTOCOL.md |
-| Run tests and verify | TESTING.md |
-| Develop and modify code | CLAUDE.md + source code |
+| **Navigate all documentation** | **[DOCS_INDEX.md](DOCS_INDEX.md)** |
+| Get started quickly | [README.md](README.md) |
+| Find command syntax | [README.md](README.md) or [CLAUDE.md](CLAUDE.md) |
+| Understand HID protocol | [PROTOCOL.md](PROTOCOL.md) |
+| Run tests and verify | [TESTING.md](TESTING.md) |
+| Develop and modify code | [CLAUDE.md](CLAUDE.md) + source code |
+| Test peripherals | [TESTING.md](TESTING.md) § Scenario 5 |
 
 ---
 
