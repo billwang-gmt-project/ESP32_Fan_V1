@@ -40,8 +40,6 @@ public:
      * @return true if successful
      */
     bool begin(WiFiSettings* wifiSettings,
-               MotorControl* motorControl,
-               MotorSettingsManager* motorSettingsManager,
                WiFiManager* wifiManager,
                StatusLED* statusLED = nullptr,
                PeripheralManager* peripheralManager = nullptr,
@@ -94,8 +92,7 @@ private:
     AsyncWebSocket* ws = nullptr;
 
     WiFiSettings* pWiFiSettings = nullptr;
-    MotorControl* pMotorControl = nullptr;
-    MotorSettingsManager* pMotorSettingsManager = nullptr;
+    // Motor control is now integrated into UART1Mux (accessed via pPeripheralManager)
     WiFiManager* pWiFiManager = nullptr;
     StatusLED* pStatusLED = nullptr;
     PeripheralManager* pPeripheralManager = nullptr;

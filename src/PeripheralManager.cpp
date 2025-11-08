@@ -3,9 +3,8 @@
 PeripheralManager::PeripheralManager() {
 }
 
-bool PeripheralManager::begin(MotorControl* motor) {
-    pMotorControl = motor;
-
+bool PeripheralManager::begin() {
+    // Motor control is now integrated into UART1Mux
     Serial.println("\n=== Initializing Peripherals ===");
 
     // Initialize UART1 (start in disabled mode)
@@ -95,7 +94,7 @@ void PeripheralManager::update() {
     }
 
     // Handle key events (motor control)
-    if (keyControlEnabled && pMotorControl != nullptr) {
+    if (keyControlEnabled) {
         handleKeyEvents();
     }
 }
@@ -202,8 +201,8 @@ void PeripheralManager::handleKeyEvents() {
         }
     } else if (event2 == UserKeys::EVENT_LONG_PRESS) {
         // Long press: Emergency stop
-        if (pMotorControl) {
-            pMotorControl->emergencyStop();
+        // Motor control check removed (now in UART1) {
+            uart1.setPWMEnabled(false); uart1.setPWMDuty(0.0);
             Serial.println("[Keys] EMERGENCY STOP triggered by Key 2");
             // Triple beep to indicate emergency stop
             buzzer.beep(2000, 100);
@@ -222,8 +221,8 @@ void PeripheralManager::handleKeyEvents() {
         buzzer.beep(1500, 50);
     } else if (event3 == UserKeys::EVENT_LONG_PRESS) {
         // Long press Key 3: Clear emergency stop
-        if (pMotorControl && pMotorControl->isEmergencyStopActive()) {
-            pMotorControl->clearEmergencyStop();
+        if (pMotorControl && !uart1.isPWMEnabled()) {
+            uart1.setPWMEnabled(true);
             Serial.println("[Keys] Emergency stop CLEARED by Key 3");
             // Confirmation beep
             buzzer.beep(1000, 200);
@@ -232,11 +231,11 @@ void PeripheralManager::handleKeyEvents() {
 }
 
 void PeripheralManager::adjustMotorDuty(bool increase) {
-    if (!pMotorControl) {
+    // Motor control check removed (now in UART1) if (false) {
         return;
     }
 
-    float currentDuty = pMotorControl->getPWMDuty();
+    float currentDuty = uart1.getPWMDuty();
     float newDuty = currentDuty + (increase ? dutyStepSize : -dutyStepSize);
 
     // Clamp to valid range
@@ -244,17 +243,17 @@ void PeripheralManager::adjustMotorDuty(bool increase) {
     if (newDuty > 100.0) newDuty = 100.0;
 
     if (newDuty != currentDuty) {
-        pMotorControl->setPWMDuty(newDuty);
+        uart1.setPWMDuty(newDuty);
         Serial.printf("[Keys] Duty adjusted: %.1f%% → %.1f%%\n", currentDuty, newDuty);
     }
 }
 
 void PeripheralManager::adjustMotorFrequency(bool increase) {
-    if (!pMotorControl) {
+    // Motor control check removed (now in UART1) if (false) {
         return;
     }
 
-    uint32_t currentFreq = pMotorControl->getPWMFrequency();
+    uint32_t currentFreq = uart1.getPWMFrequency();
     int32_t newFreq = currentFreq + (increase ? (int32_t)frequencyStepSize : -(int32_t)frequencyStepSize);
 
     // Clamp to valid range (10 Hz - 500 kHz, based on motor control limits)
@@ -262,7 +261,7 @@ void PeripheralManager::adjustMotorFrequency(bool increase) {
     if (newFreq > 500000) newFreq = 500000;
 
     if ((uint32_t)newFreq != currentFreq) {
-        pMotorControl->setPWMFrequency((uint32_t)newFreq);
+        uart1.setPWMFrequency((uint32_t)newFreq);
         Serial.printf("[Keys] Frequency adjusted: %u Hz → %u Hz\n", currentFreq, (uint32_t)newFreq);
     }
 }

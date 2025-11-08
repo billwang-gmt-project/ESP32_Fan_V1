@@ -11,18 +11,25 @@
  */
 
 // ============================================================================
-// EXISTING MOTOR CONTROL PINS (DO NOT CHANGE)
+// DEPRECATED: Old motor control pins (merged to UART1)
 // ============================================================================
-#define PIN_MOTOR_PWM_OUTPUT        10  // MCPWM1 - Motor PWM output
-#define PIN_MOTOR_TACH_INPUT        11  // MCPWM0 Capture - Tachometer input
-#define PIN_MOTOR_PULSE_OUTPUT      12  // GPIO - Change notification pulse
+// Motor control functionality has been merged into UART1 (GPIO 17, 18)
+// These pins are now available for other uses
+// #define PIN_MOTOR_PWM_OUTPUT        10  // DEPRECATED: Use UART1 PWM
+// #define PIN_MOTOR_TACH_INPUT        11  // DEPRECATED: Use UART1 RPM
+// #define PIN_MOTOR_PULSE_OUTPUT      12  // DEPRECATED: Removed
+
+// ============================================================================
+// STATUS LED
+// ============================================================================
 #define PIN_STATUS_LED              48  // WS2812 RGB status LED
 
 // ============================================================================
-// NEW UART PINS
+// UART1 PINS (Unified Motor Control)
 // ============================================================================
-// UART1 - Multiplexable between UART and PWM/RPM modes
-#define PIN_UART1_TX                17  // UART1 TX / LEDC PWM (1Hz-500kHz)
+// UART1 - Multiplexable between UART and Motor Control (PWM/RPM) modes
+// Motor control functions (previously on GPIO 10/11) are now on GPIO 17/18
+#define PIN_UART1_TX                17  // UART1 TX / MCPWM PWM output (10Hz-500kHz)
 #define PIN_UART1_RX                18  // UART1 RX / MCPWM Capture (RPM measurement, 1Hz-500kHz)
 
 // UART2 - Standard UART (avoids GPIO36/37)
@@ -59,19 +66,20 @@
 // PERIPHERAL CHANNEL ASSIGNMENTS
 // ============================================================================
 
-// LEDC Channels
+// LEDC Channels (for peripherals)
 #define LEDC_CHANNEL_BUZZER         0   // Buzzer PWM
 #define LEDC_CHANNEL_LED            1   // LED PWM
-#define LEDC_CHANNEL_UART1_PWM      2   // UART1 PWM mode
 
 // LEDC Timers
 #define LEDC_TIMER_BUZZER           0   // High-speed timer for buzzer
 #define LEDC_TIMER_LED              1   // High-speed timer for LED
-#define LEDC_TIMER_UART1_PWM        2   // High-speed timer for UART1 PWM
 
-// MCPWM Capture for UART1 RPM measurement
-// Note: MCPWM_UNIT_0 CAP0 is used by Motor Tachometer (GPIO 11)
-//       UART1 uses MCPWM_UNIT_0 CAP1 (GPIO 18)
+// MCPWM for UART1 Motor Control
+// UART1 uses MCPWM for both PWM output and RPM capture (high precision, wide range)
+#define MCPWM_UNIT_UART1_PWM        MCPWM_UNIT_1
+#define MCPWM_TIMER_UART1_PWM       MCPWM_TIMER_0
+#define MCPWM_GEN_UART1_PWM         MCPWM_OPR_A
+
 #define MCPWM_UNIT_UART1_RPM        MCPWM_UNIT_0
 #define MCPWM_CAP_UART1_RPM         MCPWM_SELECT_CAP1
 

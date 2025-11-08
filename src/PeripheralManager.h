@@ -46,10 +46,10 @@ public:
 
     /**
      * @brief Initialize all peripherals
-     * @param motor Pointer to motor control instance (for key control)
      * @return true if all peripherals initialized successfully
+     * Note: Motor control is now integrated into UART1Mux
      */
-    bool begin(MotorControl* motor = nullptr);
+    bool begin();
 
     /**
      * @brief Update all peripherals
@@ -182,8 +182,7 @@ private:
     RelayControl relay;
     GPIOControl gpioOut;
 
-    // Motor control reference (for key control)
-    MotorControl* pMotorControl = nullptr;
+    // Motor control is now integrated into UART1Mux (no separate reference needed)
 
     // Settings manager
     PeripheralSettingsManager settingsManager;

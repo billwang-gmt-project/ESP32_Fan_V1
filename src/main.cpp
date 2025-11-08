@@ -4,8 +4,9 @@
 #include "CustomHID.h"
 #include "CommandParser.h"
 #include "HIDProtocol.h"
-#include "MotorControl.h"
-#include "MotorSettings.h"
+// Motor control is now integrated into UART1Mux
+// #include "MotorControl.h"  // DEPRECATED - merged to UART1
+// #include "MotorSettings.h"  // DEPRECATED - merged to UART1
 #include "StatusLED.h"
 #include "WiFiSettings.h"
 #include "WiFiManager.h"
@@ -76,8 +77,9 @@ BLEResponse* ble_response = nullptr;
 String hid_command_buffer = "";
 
 // Motor control instances
-MotorControl motorControl;
-MotorSettingsManager motorSettingsManager;
+// Motor control is now integrated into UART1Mux
+// MotorControl motorControl;  // DEPRECATED - merged to UART1
+// MotorSettingsManager motorSettingsManager;  // DEPRECATED - merged to UART1
 
 // Status LED instance
 StatusLED statusLED;
@@ -379,100 +381,47 @@ void peripheralTask(void* parameter) {
     }
 }
 
-// Motor 處理 Task
+// Peripheral 處理 Task (migrated from motorTask)
 void motorTask(void* parameter) {
     TickType_t lastRPMUpdate = 0;
-    TickType_t lastSafetyCheck = 0;
     TickType_t lastLEDUpdate = 0;
-    TickType_t lastWatchdogFeed = 0;
 
     while (true) {
         TickType_t now = xTaskGetTickCount();
 
-        // Update PWM ramping (high frequency for smooth transitions)
-        motorControl.updateRamping();
-
-        // Update RPM reading
-        if (now - lastRPMUpdate >= pdMS_TO_TICKS(motorSettingsManager.get().rpmUpdateRate)) {
-            motorControl.updateRPM();
-            // Update UART1 RPM measurement if in PWM/RPM mode
+        // Update UART1 RPM reading if in PWM/RPM mode (every 50ms)
+        if (now - lastRPMUpdate >= pdMS_TO_TICKS(50)) {
             peripheralManager.getUART1().updateRPMFrequency();
             lastRPMUpdate = now;
         }
 
-        // Feed watchdog every 100ms
-        if (now - lastWatchdogFeed >= pdMS_TO_TICKS(100)) {
-            motorControl.feedWatchdog();
-            lastWatchdogFeed = now;
-        }
-
-        // Safety check every 500ms
-        if (now - lastSafetyCheck >= pdMS_TO_TICKS(500)) {
-            bool safetyOK = motorControl.checkSafety();
-            bool watchdogOK = motorControl.checkWatchdog();
-
-            if (!safetyOK || !watchdogOK) {
-                // Emergency stop triggered
-                motorControl.emergencyStop();  // This captures the trigger RPM internally
-
-                if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(10))) {
-                    if (!safetyOK) {
-                        float triggerRPM = motorControl.getEmergencyStopTriggerRPM();
-                        uint32_t maxSafeRPM = motorSettingsManager.get().maxSafeRPM;
-                        USBSerial.println("\n⚠️ SAFETY ALERT: Emergency stop activated!");
-                        USBSerial.printf("   Trigger RPM: %.1f / Max Safe RPM: %u\n", triggerRPM, maxSafeRPM);
-                    }
-                    if (!watchdogOK) {
-                        USBSerial.println("\n⚠️ WATCHDOG ALERT: Timeout detected - emergency stop!");
-                    }
-                    xSemaphoreGive(serialMutex);
-                }
-                // Immediately notify web clients that duty is now 0
-                if (webServerManager.isRunning()) {
-                    webServerManager.broadcastStatus();
-                }
-                // Set LED to FAST blinking red (error) - 100ms for urgent warning
-                statusLED.blinkRed(100);
-            }
-            lastSafetyCheck = now;
-        }
-
-        // Update LED based on system state every 200ms for faster response
+        // Update LED based on system state every 200ms
         if (now - lastLEDUpdate >= pdMS_TO_TICKS(200)) {
-            // Priority 1: Check for error states FIRST - don't overwrite error LED
-            bool emergencyStopActive = motorControl.isEmergencyStopActive();
-            bool safetyOK = motorControl.checkSafety();
-            bool watchdogOK = motorControl.checkWatchdog();
+            auto& uart1 = peripheralManager.getUART1();
 
-            if (emergencyStopActive || !safetyOK || !watchdogOK) {
-                // Keep fast red blink for errors (highest priority)
-                // Emergency stop flag persists until explicitly cleared
-                // Don't change LED state here - error LED must stay visible
-            }
-            // Priority 2: Web server not ready - blink yellow as warning
-            else if (!webServerManager.isRunning()) {
-                // Web server not ready - blink yellow to indicate waiting for web server
+            // Priority 1: Web server not ready - blink yellow as warning
+            if (!webServerManager.isRunning()) {
                 statusLED.blinkYellow(500);
             }
-            // Priority 3: Normal operation states
+            // Priority 2: BLE connected - purple
             else if (bleDeviceConnected) {
-                // BLE connected - purple
                 statusLED.setPurple();
-            } else if (motorControl.isRamping()) {
-                // Ramping active - yellow (smooth transition)
-                statusLED.setYellow();
-            } else if (motorControl.getPWMDuty() > 0.1) {
-                // Motor running - blue
+            }
+            // Priority 3: UART1 PWM active - blue (motor running)
+            else if (uart1.getMode() == UART1Mux::MODE_PWM_RPM &&
+                     uart1.isPWMEnabled() &&
+                     uart1.getPWMDuty() > 0.1) {
                 statusLED.setBlue();
-            } else {
-                // Motor idle - green
+            }
+            // Priority 4: Motor idle - green
+            else {
                 statusLED.setGreen();
             }
             lastLEDUpdate = now;
         }
 
-        // Yield to other tasks (10ms loop rate for smooth ramping)
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // Yield to other tasks (50ms loop rate)
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -483,36 +432,19 @@ void setup() {
     HID.onData(onHIDData);
     USB.begin();
 
-    // ========== 步驟 1.5: 初始化馬達控制 ==========
-    // Initialize motor settings manager
-    if (!motorSettingsManager.begin()) {
-        USBSerial.println("⚠️ Motor settings NVS initialization failed!");
-    }
-
-    // Load settings from NVS (or use defaults)
-    motorSettingsManager.load();
-
-    // Initialize status LED (must be before motor control for error indication)
-    if (!statusLED.begin(48, motorSettingsManager.get().ledBrightness)) {
+    // ========== 步驟 1.5: 初始化狀態 LED ==========
+    // Initialize status LED (default brightness: 25)
+    if (!statusLED.begin(48, 25)) {
         USBSerial.println("⚠️ Status LED initialization failed!");
     } else {
         // Show yellow blinking during initialization
         statusLED.blinkYellow(200);
     }
 
-    // Initialize motor control hardware
-    if (!motorControl.begin(&motorSettingsManager.get())) {
-        USBSerial.println("❌ Motor control initialization failed!");
-        // Critical error - flash red LED fast
-        statusLED.blinkRed(100);
-        // Don't halt, but indicate error state
-    } else {
-        USBSerial.println("✅ Motor control initialized successfully");
-    }
-
     // ========== 步驟 1.6: 初始化週邊管理器 ==========
+    // Motor control is now integrated into UART1Mux (no separate motor control)
     USBSerial.println("");
-    if (!peripheralManager.begin(&motorControl)) {
+    if (!peripheralManager.begin(nullptr)) {  // No motor control dependency
         USBSerial.println("❌ Peripheral manager initialization failed!");
         // Non-critical - system can continue without peripherals
     } else {

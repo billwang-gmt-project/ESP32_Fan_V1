@@ -1,8 +1,9 @@
 #include "CommandParser.h"
 #include "CustomHID.h"
 #include "HIDProtocol.h"
-#include "MotorControl.h"
-#include "MotorSettings.h"
+#include "MotorControl.h"  // DEPRECATED: Will be removed
+#include "MotorSettings.h"  // DEPRECATED: Will be removed
+#include "PeripheralManager.h"
 #include "StatusLED.h"
 #include "WiFiManager.h"
 #include "WebServer.h"
@@ -23,9 +24,13 @@ extern bool hid_data_ready;
 extern SemaphoreHandle_t bufferMutex;
 extern SemaphoreHandle_t hidSendMutex;
 
-// Motor control external variables (from main.cpp)
-extern MotorControl motorControl;
-extern MotorSettingsManager motorSettingsManager;
+// DEPRECATED: Motor control migrated to UART1
+// Motor control functionality is now accessible via peripheralManager.getUART1()
+// extern MotorControl motorControl;
+// extern MotorSettingsManager motorSettingsManager;
+
+// Peripheral manager (from main.cpp)
+extern PeripheralManager peripheralManager;
 extern StatusLED statusLED;
 
 // WiFi and Web Server external variables (from main.cpp)
@@ -98,11 +103,12 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
         return true;
     }
 
-    // 清除緊急停止狀態
+    // 清除緊急停止狀態 (恢復 PWM 輸出)
     if (upper == "CLEAR ERROR" || upper == "CLEAR_ERROR" || upper == "RESUME") {
-        motorControl.clearEmergencyStop();
-        response->println("✅ 錯誤已清除 - 系統已恢復正常");
-        response->println("Emergency error cleared - System resumed");
+        // Route to UART1 motor control (migrated from old MotorControl)
+        peripheralManager.getUART1().setPWMEnabled(true);
+        response->println("✅ PWM 輸出已恢復 - 系統已恢復正常");
+        response->println("PWM output resumed - System restored");
 
         // Notify web clients that error is cleared
         if (webServerManager.isRunning()) {
@@ -703,22 +709,24 @@ void CommandParser::handleDelay(const String& cmd, ICommandResponse* response) {
 // ==================== Motor Control Command Handlers ====================
 
 void CommandParser::handleSetPWMFreq(ICommandResponse* response, uint32_t freq) {
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
+
     // Check against absolute hardware limits
-    if (freq < MotorLimits::MIN_FREQUENCY || freq > MotorLimits::MAX_FREQUENCY) {
-        response->printf("❌ 錯誤：頻率必須在 %d - %d Hz 之間 (硬體限制)\n",
-                        MotorLimits::MIN_FREQUENCY, MotorLimits::MAX_FREQUENCY);
+    if (freq < 10 || freq > 500000) {
+        response->printf("❌ 錯誤：頻率必須在 10 - 500000 Hz 之間 (硬體限制)\n");
         return;
     }
 
     // Check against user-configurable safety limit
-    if (freq > motorSettingsManager.get().maxFrequency) {
+    if (freq > uart1.getMaxFrequency()) {
         response->printf("❌ 錯誤：頻率 %d Hz 超過安全限制 %d Hz\n",
-                        freq, motorSettingsManager.get().maxFrequency);
+                        freq, uart1.getMaxFrequency());
         response->printf("   使用 'SET MAX_FREQ %d' 來提高限制\n", freq);
         return;
     }
 
-    if (motorControl.setPWMFrequency(freq)) {
+    if (uart1.setPWMFrequency(freq)) {
         response->printf("✅ PWM 頻率設定為: %d Hz\n", freq);
 
         // Notify web clients about the change
@@ -731,13 +739,15 @@ void CommandParser::handleSetPWMFreq(ICommandResponse* response, uint32_t freq) 
 }
 
 void CommandParser::handleSetPWMDuty(ICommandResponse* response, float duty) {
-    if (duty < MotorLimits::MIN_DUTY || duty > MotorLimits::MAX_DUTY) {
-        response->printf("❌ 錯誤：占空比必須在 %.0f - %.0f%% 之間\n",
-                        MotorLimits::MIN_DUTY, MotorLimits::MAX_DUTY);
+    // Route to UART1 motor control
+    auto& uart1 = peripheralManager.getUART1();
+
+    if (duty < 0.0 || duty > 100.0) {
+        response->printf("❌ 錯誤：占空比必須在 0 - 100%% 之間\n");
         return;
     }
 
-    if (motorControl.setPWMDuty(duty)) {
+    if (uart1.setPWMDuty(duty)) {
         response->printf("✅ PWM 占空比設定為: %.1f%%\n", duty);
 
         // Notify web clients about the change
@@ -750,53 +760,78 @@ void CommandParser::handleSetPWMDuty(ICommandResponse* response, float duty) {
 }
 
 void CommandParser::handleSetPolePairs(ICommandResponse* response, uint8_t pairs) {
-    if (pairs < MotorLimits::MIN_POLE_PAIRS || pairs > MotorLimits::MAX_POLE_PAIRS) {
-        response->printf("❌ 錯誤：極對數必須在 %d - %d 之間\n",
-                        MotorLimits::MIN_POLE_PAIRS, MotorLimits::MAX_POLE_PAIRS);
+    // Route to UART1 motor control
+    auto& uart1 = peripheralManager.getUART1();
+
+    if (pairs < 1 || pairs > 12) {
+        response->printf("❌ 錯誤：極對數必須在 1 - 12 之間\n");
         return;
     }
 
-    motorSettingsManager.get().polePairs = pairs;
-    motorControl.setPolePairs(pairs);  // Apply to motor control immediately
-    response->printf("✅ 馬達極對數設定為: %d\n", pairs);
-    response->println("ℹ️ 使用 SAVE 命令儲存設定");
+    if (uart1.setPolePairs(pairs)) {
+        response->printf("✅ 馬達極對數設定為: %d\n", pairs);
+        response->println("ℹ️ 使用 SAVE 命令儲存設定");
 
-    // Notify web clients about the change
-    if (webServerManager.isRunning()) {
-        webServerManager.broadcastStatus();
+        // Notify web clients about the change
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
+    } else {
+        response->println("❌ 設定極對數失敗");
     }
 }
 
 void CommandParser::handleSetMaxFreq(ICommandResponse* response, uint32_t maxFreq) {
-    if (maxFreq < 1000 || maxFreq > MotorLimits::MAX_FREQUENCY) {
-        response->printf("❌ 錯誤：最大頻率必須在 1000 - %d Hz 之間\n",
-                        MotorLimits::MAX_FREQUENCY);
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
+
+    if (maxFreq < 10 || maxFreq > 500000) {
+        response->printf("❌ 錯誤：最大頻率必須在 10 - 500000 Hz 之間 (硬體限制)\n");
         return;
     }
 
-    motorSettingsManager.get().maxFrequency = maxFreq;
-    response->printf("✅ 最大頻率設定為: %d Hz\n", maxFreq);
-    response->println("ℹ️ 使用 SAVE 命令儲存設定");
+    if (uart1.setMaxFrequency(maxFreq)) {
+        response->printf("✅ 最大頻率設定為: %d Hz\n", maxFreq);
+        response->println("ℹ️ 使用 SAVE 命令儲存設定");
 
-    // Notify web clients about the change
-    if (webServerManager.isRunning()) {
-        webServerManager.broadcastStatus();
+        // Notify web clients about the change
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
+    } else {
+        response->println("❌ 設定最大頻率失敗");
     }
 }
 
 void CommandParser::handleSetMaxRPM(ICommandResponse* response, uint32_t maxRPM) {
-    if (maxRPM < 1000 || maxRPM > 1000000) {
-        response->println("❌ 錯誤：最大 RPM 必須在 1000 - 1000000 之間");
+    // Route to UART1 motor control (migrated from old MotorControl)
+    // Convert RPM to frequency: maxFreq = (maxRPM * polePairs) / 60
+    auto& uart1 = peripheralManager.getUART1();
+
+    if (maxRPM < 100 || maxRPM > 1000000) {
+        response->println("❌ 錯誤：最大 RPM 必須在 100 - 1000000 之間");
         return;
     }
 
-    motorSettingsManager.get().maxSafeRPM = maxRPM;
-    response->printf("✅ 最大 RPM 設定為: %d\n", maxRPM);
-    response->println("ℹ️ 使用 SAVE 命令儲存設定");
+    uint32_t polePairs = uart1.getPolePairs();
+    uint32_t maxFreq = (maxRPM * polePairs) / 60;
 
-    // Notify web clients about the change
-    if (webServerManager.isRunning()) {
-        webServerManager.broadcastStatus();
+    if (maxFreq > 500000) {
+        response->printf("❌ 錯誤：換算後頻率 %d Hz 超過硬體限制 (500000 Hz)\n", maxFreq);
+        response->printf("   當前極對數: %d, 建議降低 RPM 或極對數\n", polePairs);
+        return;
+    }
+
+    if (uart1.setMaxFrequency(maxFreq)) {
+        response->printf("✅ 最大 RPM 設定為: %d (對應頻率: %d Hz)\n", maxRPM, maxFreq);
+        response->println("ℹ️ 使用 SAVE 命令儲存設定");
+
+        // Notify web clients about the change
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
+    } else {
+        response->println("❌ 設定最大 RPM 失敗");
     }
 }
 
@@ -820,79 +855,73 @@ void CommandParser::handleSetLEDBrightness(ICommandResponse* response, uint8_t b
 }
 
 void CommandParser::handleRPM(ICommandResponse* response) {
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
+
     response->println("");
     response->println("RPM 讀數:");
-    response->printf("  當前 RPM: %.1f\n", motorControl.getCurrentRPM());
-    response->printf("  輸入頻率: %.2f Hz\n", motorControl.getInputFrequency());
-    response->printf("  極對數: %d\n", motorSettingsManager.get().polePairs);
-    response->printf("  PWM 頻率: %d Hz\n", motorControl.getPWMFrequency());
-    response->printf("  PWM 占空比: %.1f%%\n", motorControl.getPWMDuty());
+    response->printf("  當前 RPM: %.1f\n", uart1.getCalculatedRPM());
+    response->printf("  輸入頻率: %.2f Hz\n", uart1.getRPMFrequency());
+    response->printf("  極對數: %d\n", uart1.getPolePairs());
+    response->printf("  PWM 頻率: %d Hz\n", uart1.getPWMFrequency());
+    response->printf("  PWM 占空比: %.1f%%\n", uart1.getPWMDuty());
+    response->printf("  UART1 模式: %s\n", uart1.getModeName());
     response->println("");
 }
 
 void CommandParser::handleMotorStatus(ICommandResponse* response) {
-    const MotorSettings& settings = motorSettingsManager.get();
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
 
     response->println("");
-    response->println("馬達控制狀態:");
+    response->println("馬達控制狀態 (UART1 整合):");
     response->println("");
 
-    // Initialization status
-    response->printf("  初始化: %s\n", motorControl.isInitialized() ? "✅ 成功" : "❌ 失敗");
-    response->printf("  轉速計: %s\n", motorControl.isCaptureInitialized() ? "✅ 就緒" : "❌ 未就緒");
-    response->printf("  運行時間: %lu ms\n", motorControl.getUptime());
+    // Mode status
+    response->println("UART1 模式:");
+    response->printf("  當前模式: %s\n", uart1.getModeName());
+    response->printf("  PWM 輸出: %s\n", uart1.isPWMEnabled() ? "✅ 啟用" : "❌ 停用");
+    response->printf("  RPM 訊號: %s\n", uart1.hasRPMSignal() ? "✅ 偵測到" : "❌ 無訊號");
     response->println("");
 
     // PWM output status
     response->println("PWM 輸出:");
-    response->printf("  頻率: %d Hz\n", motorControl.getPWMFrequency());
-    response->printf("  占空比: %.1f%%\n", motorControl.getPWMDuty());
-    response->printf("  最大頻率限制: %d Hz\n", settings.maxFrequency);
+    response->printf("  頻率: %d Hz\n", uart1.getPWMFrequency());
+    response->printf("  占空比: %.1f%%\n", uart1.getPWMDuty());
+    response->printf("  最大頻率限制: %d Hz\n", uart1.getMaxFrequency());
     response->println("");
 
     // Tachometer status
     response->println("轉速計:");
-    response->printf("  當前 RPM: %.1f\n", motorControl.getCurrentRPM());
-    response->printf("  輸入頻率: %.2f Hz\n", motorControl.getInputFrequency());
-    response->printf("  極對數: %d\n", settings.polePairs);
-    response->printf("  最大 RPM 限制: %d\n", settings.maxSafeRPM);
-    response->printf("  更新間隔: %d ms\n", settings.rpmUpdateRate);
+    response->printf("  當前 RPM: %.1f\n", uart1.getCalculatedRPM());
+    response->printf("  輸入頻率: %.2f Hz\n", uart1.getRPMFrequency());
+    response->printf("  極對數: %d\n", uart1.getPolePairs());
     response->println("");
 
-    // Advanced features status (Priority 3)
-    response->println("進階功能:");
-    response->printf("  RPM 濾波器大小: %d 個樣本\n", motorControl.getRPMFilterSize());
-    response->printf("  原始 RPM: %.0f RPM\n", motorControl.getRawRPM());
-    response->printf("  濾波後 RPM: %.0f RPM\n", motorControl.getCurrentRPM());
-    response->printf("  PWM 漸變: %s\n", motorControl.isRamping() ? "🔄 進行中" : "✅ 閒置");
-    response->printf("  看門狗: %s\n", motorControl.checkWatchdog() ? "✅ 正常" : "⚠️ 逾時");
-    response->println("");
-
-    // Safety status
-    response->println("安全檢查:");
-    bool safetyOK = motorControl.checkSafety();
-    bool watchdogOK = motorControl.checkWatchdog();
-    response->printf("  狀態: %s\n", (safetyOK && watchdogOK) ? "✅ 正常" : "⚠️ 警告");
-    if (motorControl.getCurrentRPM() > settings.maxSafeRPM) {
-        response->println("  ⚠️ 超速偵測");
+    // UART mode statistics (if in UART mode)
+    if (uart1.getMode() == UART1Mux::MODE_UART) {
+        uint32_t txBytes, rxBytes, errors;
+        uart1.getUARTStatistics(&txBytes, &rxBytes, &errors);
+        response->println("UART 統計:");
+        response->printf("  TX 位元組: %u\n", txBytes);
+        response->printf("  RX 位元組: %u\n", rxBytes);
+        response->printf("  錯誤計數: %u\n", errors);
+        response->printf("  鮑率: %u bps\n", uart1.getUARTBaudRate());
+        response->println("");
     }
-    if (motorControl.getPWMDuty() > 10.0f && motorControl.getCurrentRPM() < 100.0f) {
-        response->println("  ⚠️ 可能停轉");
-    }
-    if (!watchdogOK) {
-        response->println("  ⚠️ 看門狗逾時");
-    }
-    response->println("");
 }
 
 void CommandParser::handleMotorStop(ICommandResponse* response) {
-    motorControl.emergencyStop();  // This captures the trigger RPM internally
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
 
-    float triggerRPM = motorControl.getEmergencyStopTriggerRPM();
-    uint32_t maxSafeRPM = motorSettingsManager.get().maxSafeRPM;
+    // Emergency stop: set duty to 0% and disable PWM
+    float currentRPM = uart1.getCalculatedRPM();
+    uart1.setPWMDuty(0.0);
+    uart1.setPWMEnabled(false);
 
-    response->println("⛔ 緊急停止已啟動 - 占空比設為 0%");
-    response->printf("   觸發 RPM: %.1f / 最大安全 RPM: %u\n", triggerRPM, maxSafeRPM);
+    response->println("⛔ 緊急停止已啟動 - PWM 已停用，占空比設為 0%");
+    response->printf("   停止前 RPM: %.1f\n", currentRPM);
 
     // Notify web clients about emergency stop
     if (webServerManager.isRunning()) {
@@ -901,51 +930,49 @@ void CommandParser::handleMotorStop(ICommandResponse* response) {
 }
 
 void CommandParser::handleSaveSettings(ICommandResponse* response) {
-    if (motorSettingsManager.save()) {
-        response->println("✅ 設定已儲存到 NVS");
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
+
+    if (uart1.saveSettings()) {
+        response->println("✅ UART1 馬達控制設定已儲存到 NVS");
     } else {
-        response->println("❌ 儲存設定失敗");
+        response->println("❌ 儲存 UART1 設定失敗");
     }
 }
 
 void CommandParser::handleLoadSettings(ICommandResponse* response) {
-    if (motorSettingsManager.load()) {
-        const MotorSettings& settings = motorSettingsManager.get();
-        response->println("✅ 設定已從 NVS 載入");
-        response->printf("  PWM 頻率: %d Hz\n", settings.frequency);
-        response->printf("  PWM 占空比: %.1f%%\n", settings.duty);
-        response->printf("  極對數: %d\n", settings.polePairs);
-        response->printf("  最大頻率: %d Hz\n", settings.maxFrequency);
-        response->printf("  最大 RPM: %d\n", settings.maxSafeRPM);
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
 
-        // Apply loaded settings to motor control
-        motorControl.setPWMFrequency(settings.frequency);
-        motorControl.setPWMDuty(settings.duty);
-        motorControl.setPolePairs(settings.polePairs);
-        statusLED.setBrightness(settings.ledBrightness);
+    if (uart1.loadSettings()) {
+        response->println("✅ UART1 馬達控制設定已從 NVS 載入");
+        response->printf("  PWM 頻率: %d Hz\n", uart1.getPWMFrequency());
+        response->printf("  PWM 占空比: %.1f%%\n", uart1.getPWMDuty());
+        response->printf("  極對數: %d\n", uart1.getPolePairs());
+        response->printf("  最大頻率: %d Hz\n", uart1.getMaxFrequency());
+        response->printf("  UART 鮑率: %u bps\n", uart1.getUARTBaudRate());
 
         // Notify web clients about the changes
         if (webServerManager.isRunning()) {
             webServerManager.broadcastStatus();
         }
     } else {
-        response->println("❌ 載入設定失敗");
+        response->println("❌ 載入 UART1 設定失敗");
     }
 }
 
 void CommandParser::handleResetSettings(ICommandResponse* response) {
-    motorSettingsManager.reset();
-    motorSettingsManager.save();
-    response->println("✅ 設定已重設為出廠預設值");
-    response->printf("  PWM 頻率: %d Hz\n", MotorDefaults::FREQUENCY);
-    response->printf("  PWM 占空比: %.0f%%\n", MotorDefaults::DUTY);
-    response->printf("  極對數: %d\n", MotorDefaults::POLE_PAIRS);
+    // Route to UART1 motor control (migrated from old MotorControl)
+    auto& uart1 = peripheralManager.getUART1();
 
-    // Apply default settings
-    motorControl.setPWMFrequency(MotorDefaults::FREQUENCY);
-    motorControl.setPWMDuty(MotorDefaults::DUTY);
-    motorControl.setPolePairs(MotorDefaults::POLE_PAIRS);
-    statusLED.setBrightness(MotorDefaults::LED_BRIGHTNESS);
+    uart1.resetToDefaults();
+    uart1.saveSettings();
+
+    response->println("✅ UART1 馬達控制設定已重設為出廠預設值");
+    response->printf("  PWM 頻率: %d Hz\n", uart1.getPWMFrequency());
+    response->printf("  PWM 占空比: %.1f%%\n", uart1.getPWMDuty());
+    response->printf("  極對數: %d\n", uart1.getPolePairs());
+    response->printf("  最大頻率: %d Hz\n", uart1.getMaxFrequency());
 
     // Notify web clients about the changes
     if (webServerManager.isRunning()) {

@@ -221,6 +221,65 @@ public:
     bool hasRPMSignal() const;
 
     // ========================================================================
+    // Motor Control Functions (MODE_PWM_RPM only)
+    // ========================================================================
+
+    /**
+     * @brief Set motor pole pairs
+     * @param poles Number of pole pairs (1-12)
+     * @return true if successful
+     */
+    bool setPolePairs(uint32_t poles);
+
+    /**
+     * @brief Get motor pole pairs
+     * @return Current pole pairs setting
+     */
+    uint32_t getPolePairs() const { return polePairs; }
+
+    /**
+     * @brief Set maximum frequency limit
+     * @param freq Maximum frequency in Hz (10-500000)
+     * @return true if successful
+     */
+    bool setMaxFrequency(uint32_t freq);
+
+    /**
+     * @brief Get maximum frequency limit
+     * @return Current maximum frequency in Hz
+     */
+    uint32_t getMaxFrequency() const { return maxFrequency; }
+
+    /**
+     * @brief Get calculated motor RPM based on pole pairs
+     * @return Motor RPM (rotations per minute)
+     *
+     * Formula: RPM = (frequency × 60) / pole_pairs
+     */
+    float getCalculatedRPM() const;
+
+    // ========================================================================
+    // Settings Persistence
+    // ========================================================================
+
+    /**
+     * @brief Save all UART1 settings to NVS
+     * @return true if successful
+     */
+    bool saveSettings();
+
+    /**
+     * @brief Load UART1 settings from NVS
+     * @return true if successful
+     */
+    bool loadSettings();
+
+    /**
+     * @brief Reset UART1 settings to factory defaults
+     */
+    void resetToDefaults();
+
+    // ========================================================================
     // Status and Diagnostics
     // ========================================================================
 
@@ -256,10 +315,14 @@ private:
     uint32_t uartRxBytes = 0;
     uint32_t uartErrors = 0;
 
-    // PWM mode state
+    // PWM mode state (MCPWM)
     uint32_t pwmFrequency = 1000;      // Default 1kHz
     float pwmDuty = 50.0;              // Default 50%
     bool pwmEnabled = false;
+
+    // Motor control parameters (integrated from old MotorControl)
+    uint32_t polePairs = 2;            // Motor pole pairs (default 2)
+    uint32_t maxFrequency = 100000;    // Maximum frequency limit (100 kHz)
 
     // RPM measurement state (MCPWM Capture)
     float rpmFrequency = 0.0;              // Measured frequency in Hz

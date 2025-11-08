@@ -1,6 +1,10 @@
 #include "UART1Mux.h"
 #include "driver/gpio.h"
 #include "soc/mcpwm_periph.h"
+#include <Preferences.h>
+
+// NVS namespace for UART1 settings persistence
+static const char* NVS_NAMESPACE = "uart1_settings";
 
 // Define static variables for MCPWM Capture
 volatile uint32_t UART1Mux::capturePeriod = 0;
@@ -223,27 +227,17 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
         return false;
     }
 
-    // Configure LEDC timer frequency
-    ledc_timer_config_t timer_conf = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .duty_resolution = LEDC_TIMER_13_BIT,  // 13-bit resolution (0-8191)
-        .timer_num = (ledc_timer_t)LEDC_TIMER_UART1_PWM,
-        .freq_hz = frequency,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
-
-    esp_err_t err = ledc_timer_config(&timer_conf);
+    // Set MCPWM frequency
+    esp_err_t err = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
     if (err != ESP_OK) {
-        Serial.printf("[UART1] PWM frequency set failed: %d\n", err);
+        Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
     pwmFrequency = frequency;
 
-    // Re-apply duty cycle
-    uint32_t dutyValue = (uint32_t)((pwmDuty / 100.0) * 8191.0);
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)LEDC_CHANNEL_UART1_PWM, dutyValue);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)LEDC_CHANNEL_UART1_PWM);
+    // MCPWM automatically maintains duty cycle percentage after frequency change
+    // No need to re-apply duty cycle like LEDC
 
     return true;
 }
@@ -259,11 +253,17 @@ bool UART1Mux::setPWMDuty(float duty) {
 
     pwmDuty = duty;
 
-    // Calculate duty value (13-bit: 0-8191)
-    uint32_t dutyValue = (uint32_t)((duty / 100.0) * 8191.0);
+    // Set MCPWM duty cycle (directly in percentage 0.0-100.0)
+    esp_err_t err = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                                     MCPWM_GEN_UART1_PWM, duty);
+    if (err != ESP_OK) {
+        Serial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err));
+        return false;
+    }
 
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)LEDC_CHANNEL_UART1_PWM, dutyValue);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)LEDC_CHANNEL_UART1_PWM);
+    // Apply the duty cycle change
+    mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                        MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
 
     return true;
 }
@@ -276,11 +276,11 @@ void UART1Mux::setPWMEnabled(bool enable) {
     pwmEnabled = enable;
 
     if (enable) {
-        // Resume PWM
-        ledc_timer_resume(LEDC_LOW_SPEED_MODE, (ledc_timer_t)LEDC_TIMER_UART1_PWM);
+        // Start MCPWM timer
+        mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
     } else {
-        // Pause PWM
-        ledc_timer_pause(LEDC_LOW_SPEED_MODE, (ledc_timer_t)LEDC_TIMER_UART1_PWM);
+        // Stop MCPWM timer
+        mcpwm_stop(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
     }
 }
 
@@ -403,37 +403,28 @@ bool UART1Mux::initUART() {
 }
 
 bool UART1Mux::initPWM() {
-    // Configure LEDC timer
-    ledc_timer_config_t timer_conf = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .duty_resolution = LEDC_TIMER_13_BIT,
-        .timer_num = (ledc_timer_t)LEDC_TIMER_UART1_PWM,
-        .freq_hz = pwmFrequency,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
+    // Initialize MCPWM for PWM output (replaces LEDC)
+    // Step 1: Configure GPIO for MCPWM
+    mcpwm_gpio_init(MCPWM_UNIT_UART1_PWM, MCPWM0A, PIN_UART1_TX);
 
-    esp_err_t err = ledc_timer_config(&timer_conf);
+    // Step 2: Configure MCPWM parameters
+    mcpwm_config_t pwm_config;
+    pwm_config.frequency = pwmFrequency;    // Frequency in Hz
+    pwm_config.cmpr_a = pwmDuty;            // Duty cycle of PWMxA (0.0 - 100.0)
+    pwm_config.cmpr_b = 0;                  // Duty cycle of PWMxB (not used)
+    pwm_config.duty_mode = MCPWM_DUTY_MODE_0;  // Active high
+    pwm_config.counter_mode = MCPWM_UP_COUNTER;
+
+    // Step 3: Initialize MCPWM
+    esp_err_t err = mcpwm_init(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, &pwm_config);
     if (err != ESP_OK) {
-        return false;
-    }
-
-    // Configure LEDC channel
-    ledc_channel_config_t channel_conf = {
-        .gpio_num = PIN_UART1_TX,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = (ledc_channel_t)LEDC_CHANNEL_UART1_PWM,
-        .intr_type = LEDC_INTR_DISABLE,
-        .timer_sel = (ledc_timer_t)LEDC_TIMER_UART1_PWM,
-        .duty = (uint32_t)((pwmDuty / 100.0) * 8191.0),
-        .hpoint = 0
-    };
-
-    err = ledc_channel_config(&channel_conf);
-    if (err != ESP_OK) {
+        Serial.printf("[UART1] ❌ MCPWM PWM init failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
     pwmEnabled = true;
+    Serial.printf("[UART1] ✅ MCPWM PWM initialized (GPIO %d, %u Hz, %.1f%% duty)\n",
+                 PIN_UART1_TX, pwmFrequency, pwmDuty);
     return true;
 }
 
@@ -476,7 +467,8 @@ void UART1Mux::deinitUART() {
 }
 
 void UART1Mux::deinitPWM() {
-    ledc_stop(LEDC_LOW_SPEED_MODE, (ledc_channel_t)LEDC_CHANNEL_UART1_PWM, 0);
+    // Stop MCPWM timer
+    mcpwm_stop(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
     pwmEnabled = false;
 }
 
@@ -524,4 +516,84 @@ bool UART1Mux::validatePWMFrequency(uint32_t frequency) {
         return false;
     }
     return true;
+}
+
+// ============================================================================
+// Motor Control Functions
+// ============================================================================
+
+bool UART1Mux::setPolePairs(uint32_t poles) {
+    if (poles < 1 || poles > 12) {
+        Serial.printf("[UART1] Invalid pole pairs: %u (valid: 1-12)\n", poles);
+        return false;
+    }
+    polePairs = poles;
+    return true;
+}
+
+bool UART1Mux::setMaxFrequency(uint32_t freq) {
+    if (freq < 10 || freq > 500000) {
+        Serial.printf("[UART1] Invalid max frequency: %u (valid: 10-500000 Hz)\n", freq);
+        return false;
+    }
+    maxFrequency = freq;
+    return true;
+}
+
+float UART1Mux::getCalculatedRPM() const {
+    if (currentMode != MODE_PWM_RPM) {
+        return 0.0;
+    }
+    // RPM = (frequency × 60) / pole_pairs
+    return (rpmFrequency * 60.0) / (float)polePairs;
+}
+
+// ============================================================================
+// Settings Persistence
+// ============================================================================
+
+bool UART1Mux::saveSettings() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, false)) {
+        Serial.println("[UART1] Failed to open NVS for saving");
+        return false;
+    }
+
+    prefs.putUInt("pwmFreq", pwmFrequency);
+    prefs.putFloat("pwmDuty", pwmDuty);
+    prefs.putUInt("polePairs", polePairs);
+    prefs.putUInt("maxFreq", maxFrequency);
+    prefs.putUInt("uartBaud", uartBaudRate);
+
+    prefs.end();
+    Serial.println("[UART1] Settings saved to NVS");
+    return true;
+}
+
+bool UART1Mux::loadSettings() {
+    Preferences prefs;
+    if (!prefs.begin(NVS_NAMESPACE, true)) {  // Read-only
+        Serial.println("[UART1] No saved settings found, using defaults");
+        return false;
+    }
+
+    pwmFrequency = prefs.getUInt("pwmFreq", 1000);
+    pwmDuty = prefs.getFloat("pwmDuty", 50.0);
+    polePairs = prefs.getUInt("polePairs", 2);
+    maxFrequency = prefs.getUInt("maxFreq", 100000);
+    uartBaudRate = prefs.getUInt("uartBaud", 115200);
+
+    prefs.end();
+    Serial.println("[UART1] Settings loaded from NVS");
+    return true;
+}
+
+void UART1Mux::resetToDefaults() {
+    pwmFrequency = 1000;
+    pwmDuty = 50.0;
+    polePairs = 2;
+    maxFrequency = 100000;
+    uartBaudRate = 115200;
+
+    Serial.println("[UART1] Settings reset to factory defaults");
 }
