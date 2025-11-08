@@ -575,6 +575,10 @@ void CommandParser::handleInfo(ICommandResponse* response) {
     response->println("");
     response->println("=== ESP32-S3 裝置資訊 ===");
     response->println("");
+    response->println("韌體版本:");
+    response->println("  版本: 2.5.0-uart1-fix");
+    response->printf("  編譯時間: %s %s\n", __DATE__, __TIME__);
+    response->println("");
     response->println("硬體規格:");
     response->println("  型號: ESP32-S3-DevKitC-1 N16R8");
     response->println("  晶片: ESP32-S3");
