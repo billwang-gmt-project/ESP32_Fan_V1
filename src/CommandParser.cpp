@@ -821,10 +821,21 @@ void CommandParser::handleSetPWMFreqAndDuty(ICommandResponse* response, uint32_t
     bool result = uart1.setPWMFrequencyAndDuty(freq, duty);
     response->printf("🔵 Function returned: %s\n", result ? "SUCCESS" : "FAILED");
 
+    // Wait a bit for shadow register to load (if used)
+    delayMicroseconds(100);
+
     // Read MCPWM register AFTER update
     uint32_t cfg0_after = MCPWM1.timer[0].timer_cfg0.val;
     response->printf("🔵 Register AFTER:  cfg0=0x%08X, prescaler=%u, period=%u\n",
                      cfg0_after, (cfg0_after & 0xFF), ((cfg0_after >> 8) & 0xFFFF));
+
+    // Read again after 1ms to check if shadow register loaded
+    delay(1);
+    uint32_t cfg0_after_delay = MCPWM1.timer[0].timer_cfg0.val;
+    if (cfg0_after_delay != cfg0_after) {
+        response->printf("⚠️  Register changed after delay: cfg0=0x%08X, prescaler=%u, period=%u\n",
+                         cfg0_after_delay, (cfg0_after_delay & 0xFF), ((cfg0_after_delay >> 8) & 0xFFFF));
+    }
 
     // Calculate expected frequency
     uint32_t reg_prescaler = (cfg0_after & 0xFF);

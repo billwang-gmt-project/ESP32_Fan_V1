@@ -327,13 +327,14 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     // Try to achieve target frequency using CURRENT prescaler first
     // This maximizes use of shadow register mode (glitch-free)
 
-    const uint32_t APB_CLK = 80000000;  // 80 MHz
-    uint32_t target_ticks = APB_CLK / frequency;
+    // Use detected clock frequency instead of hardcoded 80MHz
+    uint32_t target_ticks = mcpwmClockFreq / frequency;
 
     // Try using current prescaler
     uint32_t new_period_with_current_prescaler = target_ticks / pwmPrescaler;
 
-    Serial.printf("[UART1] 🧮 Target freq=%u Hz, current prescaler=%u\n", frequency, pwmPrescaler);
+    Serial.printf("[UART1] 🧮 Clock=%u Hz, Target freq=%u Hz, current prescaler=%u\n",
+                 mcpwmClockFreq, frequency, pwmPrescaler);
     Serial.printf("[UART1] 🧮 New period with current prescaler: %u ticks\n", new_period_with_current_prescaler);
     Serial.flush();
 
@@ -539,7 +540,12 @@ bool UART1Mux::initPWM() {
     // Step 1: Configure GPIO for MCPWM
     mcpwm_gpio_init(MCPWM_UNIT_UART1_PWM, MCPWM0A, PIN_UART1_TX);
 
-    // Step 2: Configure MCPWM parameters
+    // Step 2: Configure MCPWM clock source (CRITICAL: Use 160MHz PLL_CLK, not APB)
+    // ESP32-S3 MCPWM clock options:
+    // - MCPWM_TIMER_CLK_SRC_PLL160M: 160 MHz (recommended for high frequency)
+    // But this requires ESP-IDF 5.x API, for ESP-IDF 4.x we use default APB_CLK
+
+    // Step 3: Configure MCPWM parameters
     mcpwm_config_t pwm_config;
     pwm_config.frequency = pwmFrequency;    // Frequency in Hz
     pwm_config.cmpr_a = pwmDuty;            // Duty cycle of PWMxA (0.0 - 100.0)
@@ -547,7 +553,7 @@ bool UART1Mux::initPWM() {
     pwm_config.duty_mode = MCPWM_DUTY_MODE_0;  // Active high
     pwm_config.counter_mode = MCPWM_UP_COUNTER;
 
-    // Step 3: Initialize MCPWM
+    // Step 4: Initialize MCPWM
     esp_err_t err = mcpwm_init(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, &pwm_config);
     if (err != ESP_OK) {
         Serial.printf("[UART1] ❌ MCPWM PWM init failed: %s\n", esp_err_to_name(err));
@@ -559,14 +565,27 @@ bool UART1Mux::initPWM() {
     mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
                         MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
 
-    // Step 5: Calculate and store prescaler/period for runtime updates
-    // This allows us to update frequency without calling mcpwm_set_frequency()
-    calculatePWMParameters(pwmFrequency, pwmPrescaler, pwmPeriod);
+    // Step 5: Read actual register values and detect clock frequency
+    uint32_t cfg0_init = MCPWM1.timer[0].timer_cfg0.val;
+    pwmPrescaler = (cfg0_init & 0xFF);
+    pwmPeriod = ((cfg0_init >> 8) & 0xFFFF);
+
+    // Calculate actual clock frequency based on register values and expected frequency
+    // Expected: clock_freq / (prescaler × period) = pwmFrequency
+    // Therefore: clock_freq = pwmFrequency × prescaler × period
+    mcpwmClockFreq = pwmFrequency * pwmPrescaler * pwmPeriod;
 
     pwmEnabled = true;
     Serial.printf("[UART1] ✅ MCPWM PWM initialized (GPIO %d, %u Hz, %.1f%% duty)\n",
                  PIN_UART1_TX, pwmFrequency, pwmDuty);
-    Serial.printf("[UART1] ℹ️ Initial prescaler=%u, period=%u ticks\n", pwmPrescaler, pwmPeriod);
+    Serial.printf("[UART1] 📖 Actual register: prescaler=%u, period=%u\n", pwmPrescaler, pwmPeriod);
+    Serial.printf("[UART1] 🔍 Detected MCPWM clock: %u Hz (%.1f MHz)\n",
+                 mcpwmClockFreq, mcpwmClockFreq / 1000000.0f);
+
+    if (mcpwmClockFreq < 10000000) {
+        Serial.printf("[UART1] ⚠️  WARNING: Clock frequency seems too low! Expected ~80MHz\n");
+        Serial.printf("[UART1] ⚠️  This will cause frequency errors in PWM output!\n");
+    }
     return true;
 }
 
