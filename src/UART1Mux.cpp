@@ -306,6 +306,70 @@ bool UART1Mux::setPWMDuty(float duty) {
     return true;
 }
 
+bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
+    if (currentMode != MODE_PWM_RPM) {
+        return false;
+    }
+
+    // Validate parameters
+    if (!validatePWMFrequency(frequency)) {
+        return false;
+    }
+
+    if (duty < 0.0 || duty > 100.0) {
+        return false;
+    }
+
+    // Output pulse on GPIO 12 BEFORE changing parameters (to observe glitches)
+    outputPWMChangePulse();
+
+    // ATOMIC UPDATE: Stop timer, update BOTH parameters, restart timer
+    // This ensures frequency and duty change simultaneously at next PWM cycle
+    bool wasEnabled = pwmEnabled;
+
+    if (wasEnabled) {
+        mcpwm_stop(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+    }
+
+    // Update frequency first
+    esp_err_t err = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
+    if (err != ESP_OK) {
+        Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err));
+        if (wasEnabled) {
+            mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+        }
+        return false;
+    }
+
+    // Update duty cycle
+    err = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                         MCPWM_GEN_UART1_PWM, duty);
+    if (err != ESP_OK) {
+        Serial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err));
+        if (wasEnabled) {
+            mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+        }
+        return false;
+    }
+
+    // Apply the duty cycle change
+    mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                        MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
+
+    // Update stored values
+    pwmFrequency = frequency;
+    pwmDuty = duty;
+
+    // Restart timer - both parameters take effect simultaneously
+    if (wasEnabled) {
+        mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+    }
+
+    Serial.printf("[UART1] PWM updated atomically: %u Hz, %.1f%%\n", frequency, duty);
+
+    return true;
+}
+
 void UART1Mux::setPWMEnabled(bool enable) {
     if (currentMode != MODE_PWM_RPM) {
         return;

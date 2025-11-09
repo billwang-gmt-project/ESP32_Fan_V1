@@ -47,6 +47,7 @@ private:
     // Motor control command handlers
     void handleSetPWMFreq(ICommandResponse* response, uint32_t freq);
     void handleSetPWMDuty(ICommandResponse* response, float duty);
+    void handleSetPWMFreqAndDuty(ICommandResponse* response, uint32_t freq, float duty);
     void handleSetPolePairs(ICommandResponse* response, uint8_t pairs);
     void handleSetMaxFreq(ICommandResponse* response, uint32_t maxFreq);
     void handleSetMaxRPM(ICommandResponse* response, uint32_t maxRPM);

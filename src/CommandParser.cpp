@@ -231,6 +231,27 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
                 return true;
             }
 
+            // SET PWM <freq> <duty> - Atomic frequency and duty update
+            if (parameter == "PWM") {
+                // Parse two parameters: frequency and duty
+                int secondSpace = value.indexOf(' ');
+                if (secondSpace > 0) {
+                    String freqStr = value.substring(0, secondSpace);
+                    String dutyStr = value.substring(secondSpace + 1);
+                    freqStr.trim();
+                    dutyStr.trim();
+
+                    uint32_t freq = freqStr.toInt();
+                    float duty = dutyStr.toFloat();
+
+                    handleSetPWMFreqAndDuty(response, freq, duty);
+                    return true;
+                } else {
+                    response->println("❌ 錯誤：格式應為 SET PWM <frequency> <duty>");
+                    return true;
+                }
+            }
+
             // SET RPM_FILTER_SIZE <size> - REMOVED IN v3.0 (filtering not available)
             // if (parameter == "RPM_FILTER_SIZE") {
             //     uint8_t size = value.toInt();
@@ -508,6 +529,7 @@ void CommandParser::handleHelp(ICommandResponse* response) {
     response->println("馬達控制:");
     response->println("  SET PWM_FREQ <Hz>    - 設定 PWM 頻率 (10-500000 Hz)");
     response->println("  SET PWM_DUTY <%>     - 設定 PWM 占空比 (0-100%)");
+    response->println("  SET PWM <Hz> <%>     - 原子性設定頻率和占空比（無毛刺）");
     response->println("  SET POLE_PAIRS <num> - 設定馬達極對數 (1-12)");
 
     response->println("  SET MAX_FREQ <Hz>    - 設定最大頻率限制");
@@ -756,6 +778,36 @@ void CommandParser::handleSetPWMDuty(ICommandResponse* response, float duty) {
         }
     } else {
         response->println("❌ 設定 PWM 占空比失敗");
+    }
+}
+
+void CommandParser::handleSetPWMFreqAndDuty(ICommandResponse* response, uint32_t freq, float duty) {
+    // Route to UART1 motor control - atomic frequency and duty update
+    auto& uart1 = peripheralManager.getUART1();
+
+    // Validate frequency
+    if (freq < 10 || freq > 500000) {
+        response->printf("❌ 錯誤：頻率必須在 10 - 500000 Hz 之間\n");
+        return;
+    }
+
+    // Validate duty
+    if (duty < 0.0 || duty > 100.0) {
+        response->printf("❌ 錯誤：占空比必須在 0 - 100%% 之間\n");
+        return;
+    }
+
+    // Atomically update both parameters
+    if (uart1.setPWMFrequencyAndDuty(freq, duty)) {
+        response->printf("✅ PWM 原子性更新: %u Hz, %.1f%%\n", freq, duty);
+        response->println("ℹ️ 頻率和占空比已在下一個 PWM 週期同時生效");
+
+        // Notify web clients about the change
+        if (webServerManager.isRunning()) {
+            webServerManager.broadcastStatus();
+        }
+    } else {
+        response->println("❌ 設定 PWM 參數失敗");
     }
 }
 

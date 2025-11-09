@@ -176,6 +176,18 @@ public:
     bool setPWMDuty(float duty);
 
     /**
+     * @brief Set PWM frequency and duty simultaneously (MODE_PWM_RPM only)
+     *
+     * Atomically updates both frequency and duty cycle at the next PWM cycle boundary.
+     * This ensures no intermediate states or glitches when changing both parameters.
+     *
+     * @param frequency Frequency in Hz (1 - 500,000)
+     * @param duty Duty cycle in percent (0.0 - 100.0)
+     * @return true if successful
+     */
+    bool setPWMFrequencyAndDuty(uint32_t frequency, float duty);
+
+    /**
      * @brief Get current PWM frequency
      * @return Current PWM frequency in Hz
      */
