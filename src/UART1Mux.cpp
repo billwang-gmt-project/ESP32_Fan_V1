@@ -773,36 +773,32 @@ void UART1Mux::calculatePWMParameters(uint32_t frequency, uint32_t& prescaler, u
 }
 
 void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
-    // Direct register manipulation to avoid timer stop/restart
-    // This updates MCPWM shadow registers which will be loaded at next TEZ event
-
-    // Calculate comparator value from duty cycle
-    // duty is percentage (0.0 - 100.0)
-    uint32_t cmpr = (uint32_t)((duty / 100.0) * period);
-
-    // Ensure cmpr doesn't exceed period
-    if (cmpr > period) {
-        cmpr = period;
-    }
-
-    // Direct register access to MCPWM1 (UART1 PWM uses MCPWM_UNIT_1)
-    // Based on ESP32-S3 MCPWM register structure:
-    // - timer[n] controls period (frequency)
-    // - operator[n] controls comparator (duty cycle)
+    // OPTIMIZED APPROACH: Only update what changed
+    //
+    // Analysis:
+    // - mcpwm_set_duty() uses shadow register, loads at TEZ (no stop)
+    // - mcpwm_set_frequency() may stop timer when changing prescaler
+    //
+    // Strategy:
+    // - Always update duty (safe, never stops)
+    // - Only update frequency if period actually changed
+    //   (if period unchanged, frequency is same, no update needed)
 
     taskENTER_CRITICAL(&mux);
 
-    // Update period register (affects frequency)
-    // Writing to timer[0].period updates the shadow register
-    MCPWM1.timer[0].period.period = period;
+    // Check if period changed (frequency changed)
+    if (period != pwmPeriod) {
+        // Calculate target frequency
+        const uint32_t APB_CLK = 80000000;  // 80 MHz
+        uint32_t target_freq = APB_CLK / (pwmPrescaler * period);
 
-    // Update comparator A register (affects duty)
-    // Operator 0, Comparator A is used for MCPWM0A output
-    MCPWM1.channel[0].cmpr_value[0].cmpr_val = cmpr;
+        // Update frequency (may briefly stop if prescaler changes)
+        mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, target_freq);
+    }
 
-    // Trigger sync to apply shadow registers at next TEZ
-    // Use timer sync configuration
-    MCPWM1.timer[0].sync.sync_sw = 1;
+    // Always update duty cycle (uses shadow register, never stops)
+    mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                   MCPWM_GEN_UART1_PWM, duty);
 
     taskEXIT_CRITICAL(&mux);
 }
