@@ -162,12 +162,65 @@ def wait_for_user(prompt: str = "按 ENTER 繼續...") -> None:
     input()
 
 def find_esp32_port() -> Optional[str]:
-    """尋找 ESP32-S3 CDC 埠"""
+    """尋找 ESP32-S3 CDC 埠（使用與 test_cdc.py 相同的可靠檢測策略）"""
     ports = serial.tools.list_ports.comports()
+
     for port in ports:
-        # 使用正確的 VID/PID 匹配
-        if port.vid == ESP32_VID and port.pid == ESP32_PID:
-            return port.device
+        port_name = port.device
+        description = port.description.lower() if port.description else ""
+
+        # 跳過藍牙裝置
+        if any(keyword in description for keyword in ['bluetooth', 'bt ', '藍牙', '藍芽']):
+            continue
+
+        # 只掃描有 VID/PID 的 USB 裝置（虛擬 COM port 通常沒有 VID/PID）
+        if not port.vid or not port.pid:
+            continue
+
+        # 跳過其他非 CDC 裝置
+        if any(keyword in description for keyword in ['printer', 'modem', 'dialup', 'irda', '印表機', '數據機']):
+            continue
+
+        try:
+            # 嘗試打開並測試裝置
+            ser = serial.Serial(
+                port=port_name,
+                baudrate=DEFAULT_BAUDRATE,
+                timeout=SERIAL_TIMEOUT,
+                rtscts=False
+            )
+
+            # 設置 DTR 信號（ESP32-S3 需要）
+            ser.dtr = True
+            ser.rts = False
+
+            # 等待裝置穩定
+            time.sleep(DTR_STABILIZATION_DELAY)
+
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+            ser.write(b"*IDN?\n")
+            ser.flush()
+
+            # 等待回應
+            time.sleep(0.1)
+            start_time = time.time()
+
+            while (time.time() - start_time) < COMMAND_TIMEOUT:
+                if ser.in_waiting > 0:
+                    response = ser.readline().decode('utf-8', errors='ignore').strip()
+                    # 檢查是否為 ESP32 裝置
+                    if any(keyword in response for keyword in ["ESP32", "RYMCU", "USB", "Composite", "HID"]):
+                        ser.close()
+                        return port_name
+                else:
+                    time.sleep(POLL_INTERVAL)
+
+            ser.close()
+
+        except (serial.SerialException, OSError):
+            continue  # 嘗試下一個埠
+
     return None
 
 def send_command(ser: serial.Serial, command: str, wait_time: float = COMMAND_RESPONSE_DELAY) -> str:
