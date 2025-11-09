@@ -348,6 +348,10 @@ private:
     bool validateUARTConfig(uint32_t baudRate, uart_stop_bits_t stopBits,
                            uart_parity_t parity, uart_word_length_t dataBits);
     bool validatePWMFrequency(uint32_t frequency);
+
+    // Debug/Test functions
+    void initPWMChangePulse();    // Initialize GPIO 12 for pulse output
+    void outputPWMChangePulse();  // Output pulse on GPIO 12 (for glitch observation)
 };
 
 #endif // UART1_MUX_H

@@ -12,6 +12,8 @@ volatile bool UART1Mux::newCaptureAvailable = false;
 volatile unsigned long UART1Mux::lastCaptureTime = 0;
 
 UART1Mux::UART1Mux() {
+    // Initialize GPIO 12 for PWM parameter change pulse (glitch observation)
+    initPWMChangePulse();
 }
 
 UART1Mux::~UART1Mux() {
@@ -227,6 +229,9 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
         return false;
     }
 
+    // Output pulse on GPIO 12 BEFORE changing frequency (to observe glitches)
+    outputPWMChangePulse();
+
     // Set MCPWM frequency
     esp_err_t err = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
     if (err != ESP_OK) {
@@ -252,6 +257,9 @@ bool UART1Mux::setPWMDuty(float duty) {
     }
 
     pwmDuty = duty;
+
+    // Output pulse on GPIO 12 BEFORE changing duty cycle (to observe glitches)
+    outputPWMChangePulse();
 
     // Set MCPWM duty cycle (directly in percentage 0.0-100.0)
     esp_err_t err = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
@@ -596,4 +604,35 @@ void UART1Mux::resetToDefaults() {
     uartBaudRate = 115200;
 
     Serial.println("[UART1] Settings reset to factory defaults");
+}
+
+// ============================================================================
+// Debug/Test Functions
+// ============================================================================
+
+void UART1Mux::initPWMChangePulse() {
+    // Initialize GPIO 12 as output for PWM parameter change pulse
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL << PIN_PWM_CHANGE_PULSE);
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&io_conf);
+
+    // Set initial state to LOW
+    gpio_set_level((gpio_num_t)PIN_PWM_CHANGE_PULSE, 0);
+
+    Serial.printf("[UART1] PWM change pulse initialized on GPIO %d\n", PIN_PWM_CHANGE_PULSE);
+}
+
+void UART1Mux::outputPWMChangePulse() {
+    // Generate a short pulse on GPIO 12 (10 microseconds HIGH)
+    // This pulse marks the exact moment when PWM parameters are being changed
+    // Use an oscilloscope to observe this pulse and correlate with any glitches
+    // on the PWM output (GPIO 17)
+
+    gpio_set_level((gpio_num_t)PIN_PWM_CHANGE_PULSE, 1);  // HIGH
+    delayMicroseconds(10);                                  // 10µs pulse width
+    gpio_set_level((gpio_num_t)PIN_PWM_CHANGE_PULSE, 0);  // LOW
 }

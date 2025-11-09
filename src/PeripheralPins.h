@@ -17,7 +17,11 @@
 // These pins are now available for other uses
 // #define PIN_MOTOR_PWM_OUTPUT        10  // DEPRECATED: Use UART1 PWM
 // #define PIN_MOTOR_TACH_INPUT        11  // DEPRECATED: Use UART1 RPM
-// #define PIN_MOTOR_PULSE_OUTPUT      12  // DEPRECATED: Removed
+
+// ============================================================================
+// DEBUG/TEST OUTPUT PINS
+// ============================================================================
+#define PIN_PWM_CHANGE_PULSE        12  // GPIO Output - Pulse on PWM parameter change (for glitch observation)
 
 // ============================================================================
 // STATUS LED
