@@ -228,10 +228,33 @@ def send_command(ser: serial.Serial, command: str, wait_time: float = COMMAND_RE
     ser.write(f"{command}\n".encode('utf-8'))
     time.sleep(wait_time)
     response = ""
+
+    # 讀取初始回應
     while ser.in_waiting:
         response += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
         time.sleep(POLL_INTERVAL)
+
+    # 再等待一小段時間以捕獲調試訊息（如 GLITCH-FREE PATH）
+    time.sleep(0.05)
+    while ser.in_waiting:
+        response += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
+        time.sleep(POLL_INTERVAL)
+
     return response
+
+def extract_debug_info(response: str) -> None:
+    """提取並顯示調試訊息"""
+    lines = response.split('\n')
+    for line in lines:
+        line = line.strip()
+        if '[UART1]' in line and ('GLITCH-FREE' in line or 'PRESCALER' in line or '🔍' in line or '🧮' in line or '✅' in line or '⚠️' in line):
+            # 高亮顯示調試訊息
+            if 'GLITCH-FREE' in line:
+                print(f"  {Colors.OKGREEN}[調試] {line}{Colors.ENDC}")
+            elif 'PRESCALER CHANGE' in line:
+                print(f"  {Colors.WARNING}[調試] {line}{Colors.ENDC}")
+            else:
+                print(f"  {Colors.OKBLUE}[調試] {line}{Colors.ENDC}")
 
 def parse_rpm_from_status(response: str) -> Optional[float]:
     """從 UART1 STATUS 回應中解析 RPM 頻率"""
@@ -348,12 +371,14 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
         print(f"\n  切換 {i+1}：→ {freq} Hz ({TEST_BASELINE_DUTY}% 佔空比) {glitch_note}")
         cmd = f"UART1 PWM {freq} {TEST_BASELINE_DUTY} ON"
         response = send_command(ser, cmd, wait_time=TRANSITION_DELAY * 2)
+        extract_debug_info(response)  # 顯示調試訊息
         print(f"  回應：{response.strip()}")
         time.sleep(TRANSITION_DELAY)
 
     print()
-    print_info("💡 提示：請同時查看 CDC 控制台的調試輸出")
-    print("   - 查找 '[UART1] ✅ GLITCH-FREE PATH' 或 '[UART1] ⚠️ PRESCALER CHANGE' 訊息")
+    print_info("💡 提示：調試訊息已顯示在上方")
+    print("   - 綠色 '[調試]' → GLITCH-FREE PATH（無毛刺）")
+    print("   - 黃色 '[調試]' → PRESCALER CHANGE（可能有毛刺）")
     user_input = input(f"{Colors.WARNING}您觀察到任何毛刺嗎？(yes/no)：{Colors.ENDC}")
     if user_input.lower() == 'no':
         print_success("頻率切換：平滑（無毛刺）")
@@ -380,6 +405,7 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
         print(f"\n  切換 {i+1}：→ {duty}% ({TEST_BASELINE_FREQ} Hz) （預期：無毛刺）")
         cmd = f"UART1 PWM {TEST_BASELINE_FREQ} {duty} ON"
         response = send_command(ser, cmd, wait_time=TRANSITION_DELAY * 2)
+        extract_debug_info(response)  # 顯示調試訊息
         print(f"  回應：{response.strip()}")
         time.sleep(TRANSITION_DELAY)
 
