@@ -323,19 +323,44 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     // Mark PWM parameter change with GPIO12 toggle (non-blocking, glitch-free)
     outputPWMChangePulse();
 
-    // Calculate new prescaler and period for target frequency
-    uint32_t new_prescaler, new_period;
-    calculatePWMParameters(frequency, new_prescaler, new_period);
+    // SMART FREQUENCY UPDATE STRATEGY:
+    // Try to achieve target frequency using CURRENT prescaler first
+    // This maximizes use of shadow register mode (glitch-free)
 
-    Serial.printf("[UART1] 🧮 Calculated params: prescaler=%u, period=%u\n", new_prescaler, new_period);
+    const uint32_t APB_CLK = 80000000;  // 80 MHz
+    uint32_t target_ticks = APB_CLK / frequency;
+
+    // Try using current prescaler
+    uint32_t new_period_with_current_prescaler = target_ticks / pwmPrescaler;
+
+    Serial.printf("[UART1] 🧮 Target freq=%u Hz, current prescaler=%u\n", frequency, pwmPrescaler);
+    Serial.printf("[UART1] 🧮 New period with current prescaler: %u ticks\n", new_period_with_current_prescaler);
     Serial.flush();
 
-    // Check if prescaler needs to change
-    if (new_prescaler != pwmPrescaler) {
-        // Prescaler change required - must use mcpwm_set_frequency() (immediate update, may glitch)
-        Serial.printf("[UART1] ⚠️ PRESCALER CHANGE BRANCH: %u → %u\n",
-                     pwmPrescaler, new_prescaler);
-        Serial.printf("[UART1] 🔍 Period change: %u → %u ticks\n", pwmPeriod, new_period);
+    // Check if new period is valid (2 to 65535)
+    if (new_period_with_current_prescaler >= 2 && new_period_with_current_prescaler <= 65535) {
+        // Can achieve target frequency with current prescaler!
+        // Use shadow register mode (glitch-free!)
+        Serial.printf("[UART1] ✅ GLITCH-FREE PATH: Keep prescaler=%u, period: %u → %u\n",
+                     pwmPrescaler, pwmPeriod, new_period_with_current_prescaler);
+        Serial.flush();
+
+        Serial.println("[UART1] 🔧 Calling updatePWMRegistersDirectly()...");
+        updatePWMRegistersDirectly(new_period_with_current_prescaler, duty);
+        Serial.println("[UART1] ✅ updatePWMRegistersDirectly() returned");
+
+        // Update stored values
+        pwmPeriod = new_period_with_current_prescaler;
+        pwmFrequency = frequency;
+        pwmDuty = duty;
+
+        Serial.printf("[UART1] ✅ PWM updated (glitch-free): %u Hz, %.1f%%\n", frequency, duty);
+        Serial.flush();
+    } else {
+        // Cannot achieve target frequency with current prescaler
+        // Must change prescaler - use mcpwm_set_frequency() (may glitch)
+        Serial.printf("[UART1] ⚠️ PRESCALER CHANGE REQUIRED: period %u out of range [2, 65535]\n",
+                     new_period_with_current_prescaler);
         Serial.flush();
 
         esp_err_t err_freq = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
@@ -368,24 +393,6 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
 
         Serial.printf("[UART1] PWM updated: %u Hz, %.1f%% (prescaler=%u, period=%u)\n",
                      frequency, duty, pwmPrescaler, pwmPeriod);
-    } else {
-        // Same prescaler - only duty update needed (TEZ-synchronized, glitch-free)
-        Serial.printf("[UART1] ✅ SAME PRESCALER BRANCH: prescaler=%u\n", pwmPrescaler);
-        Serial.printf("[UART1] 🔍 Period: %u → %u ticks, Duty: %.1f%% → %.1f%%\n",
-                     pwmPeriod, new_period, pwmDuty, duty);
-        Serial.flush();
-
-        Serial.println("[UART1] 🔧 Calling updatePWMRegistersDirectly()...");
-        updatePWMRegistersDirectly(new_period, duty);
-        Serial.println("[UART1] ✅ updatePWMRegistersDirectly() returned");
-
-        // Update stored values
-        pwmPeriod = new_period;
-        pwmFrequency = frequency;
-        pwmDuty = duty;
-
-        Serial.printf("[UART1] ✅ PWM updated (glitch-free): %u Hz, %.1f%%\n", frequency, duty);
-        Serial.flush();
     }
 
     Serial.println("[UART1] 🏁 setPWMFrequencyAndDuty() RETURN TRUE");
