@@ -351,9 +351,18 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
             return false;
         }
 
-        // Update stored values
-        pwmPrescaler = new_prescaler;
-        pwmPeriod = new_period;
+        // CRITICAL: Read actual register values after mcpwm_set_frequency()
+        // ESP-IDF may use different prescaler/period calculation than ours!
+        uint32_t cfg0_actual = MCPWM1.timer[0].timer_cfg0.val;
+        uint32_t actual_prescaler = (cfg0_actual & 0xFF);
+        uint32_t actual_period = ((cfg0_actual >> 8) & 0xFFFF);
+
+        Serial.printf("[UART1] 📖 Register after mcpwm_set_frequency(): prescaler=%u, period=%u\n",
+                     actual_prescaler, actual_period);
+
+        // Update stored values with ACTUAL register values (not calculated values!)
+        pwmPrescaler = actual_prescaler;
+        pwmPeriod = actual_period;
         pwmFrequency = frequency;
         pwmDuty = duty;
 
