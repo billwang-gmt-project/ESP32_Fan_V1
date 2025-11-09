@@ -232,10 +232,21 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
     // Output pulse on GPIO 12 BEFORE changing frequency (to observe glitches)
     outputPWMChangePulse();
 
+    // GLITCH-FREE UPDATE: Stop timer, update parameters, restart timer
+    // This ensures frequency and duty changes apply atomically at cycle boundary
+    bool wasEnabled = pwmEnabled;
+
+    if (wasEnabled) {
+        mcpwm_stop(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+    }
+
     // Set MCPWM frequency
     esp_err_t err = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
     if (err != ESP_OK) {
         Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err));
+        if (wasEnabled) {
+            mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+        }
         return false;
     }
 
@@ -243,6 +254,10 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
 
     // MCPWM automatically maintains duty cycle percentage after frequency change
     // No need to re-apply duty cycle like LEDC
+
+    if (wasEnabled) {
+        mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+    }
 
     return true;
 }
@@ -261,17 +276,32 @@ bool UART1Mux::setPWMDuty(float duty) {
     // Output pulse on GPIO 12 BEFORE changing duty cycle (to observe glitches)
     outputPWMChangePulse();
 
+    // GLITCH-FREE UPDATE: Stop timer, update parameters, restart timer
+    // This ensures all parameter changes apply atomically at the next PWM cycle
+    bool wasEnabled = pwmEnabled;
+
+    if (wasEnabled) {
+        mcpwm_stop(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+    }
+
     // Set MCPWM duty cycle (directly in percentage 0.0-100.0)
     esp_err_t err = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
                                      MCPWM_GEN_UART1_PWM, duty);
     if (err != ESP_OK) {
         Serial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err));
+        if (wasEnabled) {
+            mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+        }
         return false;
     }
 
     // Apply the duty cycle change
     mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
                         MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
+
+    if (wasEnabled) {
+        mcpwm_start(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM);
+    }
 
     return true;
 }
