@@ -1,7 +1,7 @@
 #include "UART1Mux.h"
 #include "driver/gpio.h"
 #include "soc/mcpwm_periph.h"
-#include "hal/mcpwm_ll.h"
+#include "soc/mcpwm_struct.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <Preferences.h>
@@ -773,7 +773,7 @@ void UART1Mux::calculatePWMParameters(uint32_t frequency, uint32_t& prescaler, u
 }
 
 void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
-    // Direct register manipulation using LL API to avoid timer stop/restart
+    // Direct register manipulation to avoid timer stop/restart
     // This updates MCPWM shadow registers which will be loaded at next TEZ event
 
     // Calculate comparator value from duty cycle
@@ -785,19 +785,21 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
         cmpr = period;
     }
 
-    // Write to shadow registers using LL API
-    // Note: UART1 PWM uses MCPWM_UNIT_1 (MCPWM1), not MCPWM0
+    // Direct register access to MCPWM1 (UART1 PWM uses MCPWM_UNIT_1)
+    // Timer 0 (MCPWM_TIMER_UART1_PWM = MCPWM_TIMER_0)
     taskENTER_CRITICAL(&mux);
 
-    // Update period shadow register (affects frequency)
-    mcpwm_ll_timer_set_period(&MCPWM1, MCPWM_TIMER_UART1_PWM, period);
+    // Update period register (affects frequency)
+    // Writing to timer_cfg0.timer_period updates the shadow register
+    MCPWM1.timer[0].timer_cfg0.timer_period = period;
 
-    // Update comparator A shadow register (affects duty)
-    // MCPWM_TIMER_0 has operator 0, comparator A
-    mcpwm_ll_operator_set_compare_value(&MCPWM1, 0, 0, cmpr);
+    // Update comparator A register (affects duty)
+    // Writing to cmpr[0].cmpr_val updates the shadow register for comparator A
+    MCPWM1.timer[0].cmpr[0].cmpr_val = cmpr;
 
-    // Trigger soft sync to apply shadow registers at next TEZ
-    mcpwm_ll_timer_trigger_soft_sync(&MCPWM1, MCPWM_TIMER_UART1_PWM);
+    // Trigger sync to apply shadow registers at next TEZ
+    // Set timer_cfg1.timer_sync_sw = 1 to trigger software sync
+    MCPWM1.timer[0].timer_cfg1.timer_sync_sw = 1;
 
     taskEXIT_CRITICAL(&mux);
 }
