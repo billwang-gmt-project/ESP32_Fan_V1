@@ -444,7 +444,7 @@ void setup() {
     // ========== 步驟 1.6: 初始化週邊管理器 ==========
     // Motor control is now integrated into UART1Mux (no separate motor control)
     USBSerial.println("");
-    if (!peripheralManager.begin(nullptr)) {  // No motor control dependency
+    if (!peripheralManager.begin()) {  // Motor control now in UART1
         USBSerial.println("❌ Peripheral manager initialization failed!");
         // Non-critical - system can continue without peripherals
     } else {
@@ -535,9 +535,9 @@ void setup() {
     USBSerial.println("  GPIO 12: 脈衝輸出");
     USBSerial.println("");
     USBSerial.printf("初始設定:\n");
-    USBSerial.printf("  PWM 頻率: %d Hz\n", motorSettingsManager.get().frequency);
-    USBSerial.printf("  PWM 占空比: %.1f%%\n", motorSettingsManager.get().duty);
-    USBSerial.printf("  極對數: %d\n", motorSettingsManager.get().polePairs);
+    USBSerial.printf("  PWM 頻率: %u Hz\n", peripheralManager.getUART1().getPWMFrequency());
+    USBSerial.printf("  PWM 占空比: %.1f%%\n", peripheralManager.getUART1().getPWMDuty());
+    USBSerial.printf("  極對數: %d\n", peripheralManager.getUART1().getPolePairs());
     USBSerial.println("");
     USBSerial.println("輸入 'HELP' 查看所有命令");
     USBSerial.println("=================================");
@@ -589,11 +589,9 @@ void setup() {
         USBSerial.println("✅ WiFi manager initialized");
     }
 
-    // Initialize web server
+    // Initialize web server (motor control now in UART1)
     if (!webServerManager.begin(
         const_cast<WiFiSettings*>(&wifiSettings),
-        &motorControl,
-        &motorSettingsManager,
         &wifiManager,
         &statusLED,
         &peripheralManager,

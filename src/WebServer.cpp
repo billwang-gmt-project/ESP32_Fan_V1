@@ -104,19 +104,19 @@ void WebServerManager::broadcastRPM(float rpm) {
 }
 
 void WebServerManager::broadcastStatus() {
-    if (!ws || ws->count() == 0 || !pMotorControl) {
+    if (!ws || ws->count() == 0 || !pPeripheralManager) {
         return;
     }
 
     StaticJsonDocument<512> doc;
     doc["type"] = "status";
-    doc["rpm"] = pMotorControl->getCurrentRPM();
-    doc["raw_rpm"] = pMotorControl->getRawRPM();
-    doc["freq"] = pMotorControl->getPWMFrequency();
-    doc["duty"] = pMotorControl->getPWMDuty();
-    doc["ramping"] = pMotorControl->isRamping();
-    doc["uptime"] = pMotorControl->getUptime();
-    doc["emergencyStop"] = pMotorControl->isEmergencyStopActive();  // Add emergency stop status
+    // Motor control now via UART1
+    doc["rpm"] = pPeripheralManager->getUART1().getCalculatedRPM();
+    doc["raw_freq"] = pPeripheralManager->getUART1().getRPMFrequency();  // Raw frequency instead of raw RPM
+    doc["freq"] = pPeripheralManager->getUART1().getPWMFrequency();
+    doc["duty"] = pPeripheralManager->getUART1().getPWMDuty();
+    // Ramping and emergency stop features removed in v3.0
+    doc["uptime"] = millis() / 1000;  // System uptime in seconds
 
     String json;
     serializeJson(doc, json);
@@ -181,23 +181,30 @@ void WebServerManager::handleWebSocketMessage(void *arg, uint8_t *data, size_t l
             return;
         }
 
-        // Handle commands
+        // Handle commands (motor control now via UART1)
         if (strcmp(cmd, "set_freq") == 0) {
             uint32_t freq = doc["value"];
-            pMotorControl->setPWMFrequency(freq);
-            broadcastStatus();
+            if (pPeripheralManager) {
+                pPeripheralManager->getUART1().setPWMFrequency(freq);
+                broadcastStatus();
+            }
         }
         else if (strcmp(cmd, "set_duty") == 0) {
             float duty = doc["value"];
-            pMotorControl->setPWMDuty(duty);
-            broadcastStatus();
+            if (pPeripheralManager) {
+                pPeripheralManager->getUART1().setPWMDuty(duty);
+                broadcastStatus();
+            }
         }
         else if (strcmp(cmd, "stop") == 0) {
-            pMotorControl->emergencyStop();
-            broadcastStatus();
+            // Simple stop: set duty to 0% (emergency stop removed in v3.0)
+            if (pPeripheralManager) {
+                pPeripheralManager->getUART1().setPWMDuty(0.0);
+                broadcastStatus();
+            }
         }
         else if (strcmp(cmd, "clear_error") == 0) {
-            pMotorControl->clearEmergencyStop();
+            // No-op: emergency stop feature removed in v3.0
             broadcastStatus();
         }
         else if (strcmp(cmd, "get_status") == 0) {
@@ -423,10 +430,9 @@ void WebServerManager::handleGetSettings(AsyncWebServerRequest *request) {
 }
 
 void WebServerManager::handleSetPWMFreq(AsyncWebServerRequest *request) {
-    // Safety check: Prevent frequency changes during emergency stop
-    if (pMotorControl->isEmergencyStopActive()) {
-        request->send(403, "application/json",
-            "{\"error\":\"Cannot set frequency while emergency stop is active. Please clear the error first.\"}");
+    // Motor control now via UART1 (emergency stop removed in v3.0)
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not initialized\"}");
         return;
     }
 
@@ -437,7 +443,7 @@ void WebServerManager::handleSetPWMFreq(AsyncWebServerRequest *request) {
 
     uint32_t freq = request->getParam("value", true)->value().toInt();
 
-    if (pMotorControl->setPWMFrequency(freq)) {
+    if (pPeripheralManager->getUART1().setPWMFrequency(freq)) {
         request->send(200, "application/json", "{\"success\":true}");
     } else {
         request->send(500, "application/json", "{\"error\":\"Failed to set frequency\"}");
@@ -445,10 +451,9 @@ void WebServerManager::handleSetPWMFreq(AsyncWebServerRequest *request) {
 }
 
 void WebServerManager::handleSetPWMDuty(AsyncWebServerRequest *request) {
-    // Safety check: Prevent duty changes during emergency stop
-    if (pMotorControl->isEmergencyStopActive()) {
-        request->send(403, "application/json",
-            "{\"error\":\"Cannot set duty while emergency stop is active. Please clear the error first.\"}");
+    // Motor control now via UART1 (emergency stop removed in v3.0)
+    if (!pPeripheralManager) {
+        request->send(500, "application/json", "{\"error\":\"Peripheral manager not initialized\"}");
         return;
     }
 
@@ -459,7 +464,7 @@ void WebServerManager::handleSetPWMDuty(AsyncWebServerRequest *request) {
 
     float duty = request->getParam("value", true)->value().toFloat();
 
-    if (pMotorControl->setPWMDuty(duty)) {
+    if (pPeripheralManager->getUART1().setPWMDuty(duty)) {
         request->send(200, "application/json", "{\"success\":true}");
     } else {
         request->send(500, "application/json", "{\"error\":\"Failed to set duty\"}");
@@ -467,17 +472,21 @@ void WebServerManager::handleSetPWMDuty(AsyncWebServerRequest *request) {
 }
 
 void WebServerManager::handleMotorStop(AsyncWebServerRequest *request) {
-    pMotorControl->emergencyStop();
+    // Simple stop: set duty to 0% (emergency stop removed in v3.0)
+    if (pPeripheralManager) {
+        pPeripheralManager->getUART1().setPWMDuty(0.0);
+    }
     request->send(200, "application/json", "{\"success\":true}");
 }
 
 void WebServerManager::handleClearError(AsyncWebServerRequest *request) {
-    pMotorControl->clearEmergencyStop();
+    // No-op: emergency stop feature removed in v3.0
     request->send(200, "application/json", "{\"success\":true}");
 }
 
 void WebServerManager::handleSaveSettings(AsyncWebServerRequest *request) {
-    if (pMotorSettingsManager->save()) {
+    // UART1 settings saved via peripheral manager
+    if (pPeripheralManager && pPeripheralManager->saveSettings()) {
         request->send(200, "application/json", "{\"success\":true}");
     } else {
         request->send(500, "application/json", "{\"error\":\"Failed to save settings\"}");
