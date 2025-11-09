@@ -6,11 +6,11 @@
 #include <AsyncTCP.h>
 #include <SPIFFS.h>
 #include "WiFiSettings.h"
-#include "MotorControl.h"
+// #include "MotorControl.h"  // DEPRECATED: Motor control merged to UART1Mux
 
 // Forward declaration
 class WiFiSettingsManager;
-#include "MotorSettings.h"
+// #include "MotorSettings.h"  // DEPRECATED: Motor control merged to UART1Mux
 #include "WiFiManager.h"
 #include "StatusLED.h"
 #include "PeripheralManager.h"

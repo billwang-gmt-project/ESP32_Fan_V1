@@ -438,8 +438,16 @@ bool UART1Mux::initPWM() {
 
 bool UART1Mux::initRPM() {
     // Initialize MCPWM Capture for frequency measurement
-    // Step 1: Configure GPIO for MCPWM Capture
-    mcpwm_gpio_init(MCPWM_UNIT_UART1_RPM, MCPWM_CAP_UART1_RPM, PIN_UART1_RX);
+    // Note: GPIO configuration is handled automatically by mcpwm_capture_enable_channel
+
+    // Step 1: Set GPIO as input with pull-up
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = (1ULL << PIN_UART1_RX);
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;  // Pull-up for stable idle state
+    gpio_config(&io_conf);
 
     // Step 2: Configure capture parameters
     mcpwm_capture_config_t cap_conf;

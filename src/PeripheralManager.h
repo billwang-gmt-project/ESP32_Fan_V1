@@ -9,7 +9,7 @@
 #include "LEDPWMControl.h"
 #include "RelayControl.h"
 #include "GPIOControl.h"
-#include "MotorControl.h"
+// #include "MotorControl.h"  // DEPRECATED: Motor control merged to UART1Mux
 #include "PeripheralSettings.h"
 
 /**

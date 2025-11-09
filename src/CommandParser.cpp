@@ -1,8 +1,8 @@
 #include "CommandParser.h"
 #include "CustomHID.h"
 #include "HIDProtocol.h"
-#include "MotorControl.h"  // DEPRECATED: Will be removed
-#include "MotorSettings.h"  // DEPRECATED: Will be removed
+// #include "MotorControl.h"  // DEPRECATED: Motor control merged to UART1Mux
+// #include "MotorSettings.h"  // DEPRECATED: Motor control merged to UART1Mux
 #include "PeripheralManager.h"
 #include "StatusLED.h"
 #include "WiFiManager.h"
