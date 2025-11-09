@@ -1,6 +1,7 @@
 #include "UART1Mux.h"
 #include "driver/gpio.h"
 #include "soc/mcpwm_periph.h"
+#include "hal/mcpwm_ll.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <Preferences.h>
@@ -280,12 +281,10 @@ bool UART1Mux::setPWMDuty(float duty) {
     taskENTER_CRITICAL(&mux);
 
     // Set MCPWM duty cycle (directly in percentage 0.0-100.0)
+    // Note: mcpwm_set_duty_type() is called only once during initialization in initPWM()
+    // We don't call it here to avoid triggering immediate updates
     err = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
                          MCPWM_GEN_UART1_PWM, duty);
-
-    // Apply the duty cycle change
-    mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
-                        MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
 
     taskEXIT_CRITICAL(&mux);
 
@@ -320,35 +319,36 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
 
     // GLITCH-FREE ATOMIC UPDATE WITHOUT STOPPING PWM
     //
-    // Principle: MCPWM hardware uses shadow registers for PERIOD and CMPR values.
-    // When we call mcpwm_set_frequency() and mcpwm_set_duty():
-    //   1. New values are written to shadow registers (not active registers)
-    //   2. Shadow registers are automatically loaded to active registers at TEZ
-    //      (Timer Equals Zero = start of next PWM cycle)
-    //   3. PWM continues running without interruption
-    //
-    // Critical section ensures both shadow registers are written before any TEZ event,
-    // guaranteeing they load simultaneously at the next cycle boundary.
+    // Strategy: Use MCPWM shadow registers with proper configuration
+    // - Only call mcpwm_set_frequency() if frequency actually changes
+    // - mcpwm_set_duty() and mcpwm_set_duty_type() update shadow registers
+    // - Shadow registers load at next TEZ event (Timer Equals Zero)
+    // - Critical section ensures atomic writes
 
-    esp_err_t err_freq, err_duty;
+    esp_err_t err_freq = ESP_OK;
+    esp_err_t err_duty;
+
+    // Remember if frequency changed (for debug output)
+    bool freqChanged = (frequency != pwmFrequency);
 
     // Enter critical section to ensure atomic shadow register writes
-    // This prevents a TEZ event from occurring between the two writes
+    // This prevents a TEZ event from occurring between writes
     taskENTER_CRITICAL(&mux);
 
-    // Update frequency shadow register
-    err_freq = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
+    // Update frequency ONLY if it changed (avoid unnecessary timer reconfiguration)
+    // mcpwm_set_frequency() may internally stop/restart timer in some ESP-IDF versions
+    if (freqChanged) {
+        err_freq = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
+    }
 
-    // Update duty cycle shadow register
+    // Update duty cycle shadow register (always update, even if same value)
+    // Note: mcpwm_set_duty_type() is called only once during initialization in initPWM()
+    // We don't call it here to avoid triggering immediate updates
     err_duty = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
                               MCPWM_GEN_UART1_PWM, duty);
 
-    // Apply the duty cycle type (also written to shadow register)
-    mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
-                        MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
-
     // Exit critical section - shadow registers are now ready
-    // At the next TEZ event, hardware will automatically load both values simultaneously
+    // At the next TEZ event, hardware will automatically load values
     taskEXIT_CRITICAL(&mux);
 
     // Check for errors
@@ -366,8 +366,11 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     pwmFrequency = frequency;
     pwmDuty = duty;
 
-    Serial.printf("[UART1] PWM updated atomically (no-stop): %u Hz, %.1f%%\n", frequency, duty);
-    Serial.println("[UART1] ℹ️ Parameters will take effect at next PWM cycle (TEZ event)");
+    if (freqChanged) {
+        Serial.printf("[UART1] PWM updated atomically (no-stop): %u Hz, %.1f%%\n", frequency, duty);
+    } else {
+        Serial.printf("[UART1] PWM duty updated (no-stop): %.1f%% (freq unchanged: %u Hz)\n", duty, frequency);
+    }
 
     return true;
 }
@@ -525,6 +528,11 @@ bool UART1Mux::initPWM() {
         Serial.printf("[UART1] ❌ MCPWM PWM init failed: %s\n", esp_err_to_name(err));
         return false;
     }
+
+    // Step 4: Set duty type (active high) - ensures shadow register mode is enabled
+    // This only needs to be called once during initialization, not during runtime updates
+    mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                        MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
 
     pwmEnabled = true;
     Serial.printf("[UART1] ✅ MCPWM PWM initialized (GPIO %d, %u Hz, %.1f%% duty)\n",
