@@ -331,20 +331,36 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     print_step("1.3", "頻率切換測試（毛刺檢測）")
     print_info("快速改變頻率以檢測毛刺...")
     print_warning("⚠️  觀察：注意任何毛刺或不連續現象")
+    print()
+    print_info("預期行為說明：")
+    print("  - 第 1 次切換：可能有毛刺（從上一個測試狀態切換，預分頻器可能改變）")
+    print("  - 第 2-5 次：取決於預分頻器是否改變")
+    print("  - 若 CDC 控制台顯示 'GLITCH-FREE PATH' → 無毛刺")
+    print("  - 若 CDC 控制台顯示 'PRESCALER CHANGE' → 可能有毛刺")
+    print()
 
     for i, freq in enumerate(TRANSITION_FREQUENCIES):
-        print(f"\n  切換 {i+1}：→ {freq} Hz ({TEST_BASELINE_DUTY}% 佔空比)")
+        if i == 0:
+            glitch_note = "（預期：可能有毛刺）"
+        else:
+            glitch_note = "（查看 CDC 控制台確認）"
+
+        print(f"\n  切換 {i+1}：→ {freq} Hz ({TEST_BASELINE_DUTY}% 佔空比) {glitch_note}")
         cmd = f"UART1 PWM {freq} {TEST_BASELINE_DUTY} ON"
         response = send_command(ser, cmd, wait_time=TRANSITION_DELAY * 2)
         print(f"  回應：{response.strip()}")
         time.sleep(TRANSITION_DELAY)
 
     print()
+    print_info("💡 提示：請同時查看 CDC 控制台的調試輸出")
+    print("   - 查找 '[UART1] ✅ GLITCH-FREE PATH' 或 '[UART1] ⚠️ PRESCALER CHANGE' 訊息")
     user_input = input(f"{Colors.WARNING}您觀察到任何毛刺嗎？(yes/no)：{Colors.ENDC}")
     if user_input.lower() == 'no':
         print_success("頻率切換：平滑（無毛刺）")
+        print_info("✅ 優秀！這表示所有切換都使用了相同的預分頻器")
     else:
         print_warning("頻率切換：觀察到毛刺")
+        print_info("ℹ️ 這可能是正常的（預分頻器改變），請確認 CDC 控制台的調試訊息")
 
     wait_for_user("接下來要測試佔空比切換（毛刺檢測），按 ENTER 繼續...")
 
@@ -352,9 +368,16 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     print_step("1.4", "佔空比切換測試（毛刺檢測）")
     print_info("在固定頻率下快速改變佔空比...")
     print_warning("⚠️  觀察：注意任何毛刺或不連續現象")
+    print()
+    print_info("預期行為說明：")
+    print("  - 頻率固定為 1000 Hz，預分頻器不變")
+    print("  - 所有佔空比切換都應該是無毛刺的（使用影子寄存器模式）")
+    print("  - 佔空比更新會在下一個 TEZ（Timer Equals Zero）同步生效")
+    print("  - ✅ 如果觀察到毛刺，這是異常的！")
+    print()
 
     for i, duty in enumerate(TRANSITION_DUTIES):
-        print(f"\n  切換 {i+1}：→ {duty}% ({TEST_BASELINE_FREQ} Hz)")
+        print(f"\n  切換 {i+1}：→ {duty}% ({TEST_BASELINE_FREQ} Hz) （預期：無毛刺）")
         cmd = f"UART1 PWM {TEST_BASELINE_FREQ} {duty} ON"
         response = send_command(ser, cmd, wait_time=TRANSITION_DELAY * 2)
         print(f"  回應：{response.strip()}")
@@ -364,8 +387,11 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     user_input = input(f"{Colors.WARNING}您觀察到任何毛刺嗎？(yes/no)：{Colors.ENDC}")
     if user_input.lower() == 'no':
         print_success("佔空比切換：平滑（無毛刺）")
+        print_info("✅ 正確！佔空比更新使用了 TEZ 同步機制")
     else:
-        print_warning("佔空比切換：觀察到毛刺")
+        print_fail("佔空比切換：觀察到毛刺")
+        print_warning("❌ 異常！佔空比切換不應該有毛刺（頻率未改變）")
+        print_info("   請檢查韌體實現或示波器連接")
 
     wait_for_user("接下來要測試極限頻率（最小 1 Hz 和最大 500 kHz），按 ENTER 繼續...")
 
