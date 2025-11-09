@@ -1,6 +1,10 @@
 #include "WebServer.h"
 #include "ArduinoJson.h"
 #include <WiFi.h>
+#include "USBCDC.h"
+
+// External reference to USBSerial (defined in main.cpp)
+extern USBCDC USBSerial;
 
 WebServerManager::WebServerManager() {
     // Constructor
@@ -12,7 +16,7 @@ bool WebServerManager::begin(WiFiSettings* wifiSettings,
                              PeripheralManager* peripheralManager,
                              WiFiSettingsManager* wifiSettingsManager) {
     if (!wifiSettings || !wifiManager || !peripheralManager) {
-        Serial.println("❌ WebServerManager::begin() - NULL pointer!");
+        USBSerial.println("❌ WebServerManager::begin() - NULL pointer!");
         return false;
     }
 
@@ -27,13 +31,13 @@ bool WebServerManager::begin(WiFiSettings* wifiSettings,
     server = new AsyncWebServer(wifiSettings->web_port);
     ws = new AsyncWebSocket("/ws");
 
-    Serial.printf("✅ Web Server initialized on port %d\n", wifiSettings->web_port);
+    USBSerial.printf("✅ Web Server initialized on port %d\n", wifiSettings->web_port);
     return true;
 }
 
 bool WebServerManager::start() {
     if (!server || !ws) {
-        Serial.println("❌ Web Server not initialized!");
+        USBSerial.println("❌ Web Server not initialized!");
         return false;
     }
 
@@ -48,8 +52,8 @@ bool WebServerManager::start() {
     server->begin();
     running = true;
 
-    Serial.println("✅ Web Server started");
-    Serial.printf("  Access at: http://%s/\n", pWiFiManager->getIPAddress().c_str());
+    USBSerial.println("✅ Web Server started");
+    USBSerial.printf("  Access at: http://%s/\n", pWiFiManager->getIPAddress().c_str());
 
     return true;
 }
@@ -58,7 +62,7 @@ void WebServerManager::stop() {
     if (server) {
         server->end();
         running = false;
-        Serial.println("📡 Web Server stopped");
+        USBSerial.println("📡 Web Server stopped");
     }
 }
 
@@ -138,14 +142,14 @@ void WebServerManager::handleWebSocketEvent(AsyncWebSocket *server,
                                             size_t len) {
     switch (type) {
         case WS_EVT_CONNECT:
-            Serial.printf("[WS] Client #%u connected from %s\n",
+            USBSerial.printf("[WS] Client #%u connected from %s\n",
                          client->id(), client->remoteIP().toString().c_str());
             // Send initial status
             broadcastStatus();
             break;
 
         case WS_EVT_DISCONNECT:
-            Serial.printf("[WS] Client #%u disconnected\n", client->id());
+            USBSerial.printf("[WS] Client #%u disconnected\n", client->id());
             break;
 
         case WS_EVT_DATA:
@@ -165,14 +169,14 @@ void WebServerManager::handleWebSocketMessage(void *arg, uint8_t *data, size_t l
         data[len] = 0;  // Null terminate
         String message = (char*)data;
 
-        Serial.printf("[WS] Received: %s\n", message.c_str());
+        USBSerial.printf("[WS] Received: %s\n", message.c_str());
 
         // Parse JSON command
         StaticJsonDocument<256> doc;
         DeserializationError error = deserializeJson(doc, message);
 
         if (error) {
-            Serial.printf("[WS] JSON parse error: %s\n", error.c_str());
+            USBSerial.printf("[WS] JSON parse error: %s\n", error.c_str());
             return;
         }
 
@@ -725,7 +729,7 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
                 // Apply brightness to actual LED immediately
                 if (pStatusLED) {
                     pStatusLED->setBrightness(brightness);
-                    Serial.printf("✅ LED brightness updated and applied: %d\n", brightness);
+                    USBSerial.printf("✅ LED brightness updated and applied: %d\n", brightness);
                 }
                 updated = true;
             }
@@ -736,7 +740,7 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
             if (doc.containsKey("polePairs") && pPeripheralManager) {
                 uint8_t polePairs = doc["polePairs"];
                 pPeripheralManager->getUART1().setPolePairs(polePairs);
-                Serial.printf("✅ Pole pairs set to: %d\n", polePairs);
+                USBSerial.printf("✅ Pole pairs set to: %d\n", polePairs);
                 updated = true;
             }
 
@@ -751,7 +755,7 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
 
                     if (doc.containsKey("wifiSSID")) {
                         const char* ssid = doc["wifiSSID"];
-                        Serial.printf("📡 WiFi SSID received: %s\n", ssid);
+                        USBSerial.printf("📡 WiFi SSID received: %s\n", ssid);
                         strncpy(wifiSettings.sta_ssid, ssid, sizeof(wifiSettings.sta_ssid) - 1);
                         wifiSettings.sta_ssid[sizeof(wifiSettings.sta_ssid) - 1] = '\0';
                         wifiUpdated = true;
@@ -759,7 +763,7 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
 
                     if (doc.containsKey("wifiPassword")) {
                         const char* password = doc["wifiPassword"];
-                        Serial.println("📡 WiFi password received");
+                        USBSerial.println("📡 WiFi password received");
                         // Only update password if not empty (empty means keep existing)
                         if (password && strlen(password) > 0) {
                             strncpy(wifiSettings.sta_password, password, sizeof(wifiSettings.sta_password) - 1);
@@ -770,15 +774,15 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
 
                     if (wifiUpdated) {
                         if (pWiFiSettingsManager->save()) {
-                            Serial.println("💾 WiFi settings saved to NVS");
+                            USBSerial.println("💾 WiFi settings saved to NVS");
                             updateMessage += "WiFi settings saved. ";
                         } else {
-                            Serial.println("❌ Failed to save WiFi settings");
+                            USBSerial.println("❌ Failed to save WiFi settings");
                             updateMessage += "WiFi settings save failed. ";
                         }
                     }
                 } else {
-                    Serial.println("⚠️ WiFiSettingsManager not available");
+                    USBSerial.println("⚠️ WiFiSettingsManager not available");
                     updateMessage += "WiFi settings manager not available. ";
                 }
             }
@@ -786,7 +790,7 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
             // BLE device name
             if (doc.containsKey("bleDeviceName")) {
                 const char* bleName = doc["bleDeviceName"];
-                Serial.printf("📶 BLE device name received: %s\n", bleName);
+                USBSerial.printf("📶 BLE device name received: %s\n", bleName);
                 // Note: BLE name requires BLEDevice access to update
                 // TODO: Update BLE device name dynamically
                 updateMessage += "BLE name requires implementation. ";
@@ -795,7 +799,7 @@ void WebServerManager::handlePostConfig(AsyncWebServerRequest *request) {
             // Save settings to NVS if anything changed (v3.0: via peripheral manager)
             if (updated && pPeripheralManager) {
                 pPeripheralManager->saveSettings();
-                Serial.println("💾 Settings saved to NVS");
+                USBSerial.println("💾 Settings saved to NVS");
             }
         }
 
