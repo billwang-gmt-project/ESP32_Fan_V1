@@ -818,19 +818,23 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
 
     // ===== Update Period (if changed) =====
     if (period != pwmPeriod) {
-        // Read current CFG0 register value
-        uint32_t cfg0_val = MCPWM1.timer[0].timer_cfg0.val;
+        // CRITICAL: Must write BOTH prescaler and period together!
+        // The timer_cfg0 register contains:
+        //   bits [7:0]  = prescaler
+        //   bits [23:8] = period
+        //   bit  [24]   = period_upmethod (1 = shadow register mode)
 
-        // Clear period bits [23:8] and period_upmethod bit [24]
-        // Keep prescaler bits [7:0] unchanged
-        cfg0_val &= 0xFE0000FF;
+        // Build the complete register value with prescaler + period + shadow mode
+        uint32_t cfg0_val = (pwmPrescaler & 0xFF)      // Prescaler [7:0]
+                          | (period << 8)               // Period [23:8]
+                          | (1 << 24);                  // Shadow mode [24]
 
-        // Set new period [23:8] and enable shadow register mode [24]
-        // Bit 24 = 1: period update synchronized to TEZ (glitch-free!)
-        cfg0_val |= (period << 8) | (1 << 24);
-
-        // Write back to register
+        // Write complete value to register
         MCPWM1.timer[0].timer_cfg0.val = cfg0_val;
+
+        // Debug output
+        Serial.printf("[UART1] 🔧 Register write: prescaler=%u, period=%u, cfg0_val=0x%08X\n",
+                     pwmPrescaler, period, cfg0_val);
 
         // Update stored period value
         pwmPeriod = period;
