@@ -235,27 +235,41 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
     // Output pulse on GPIO 12 BEFORE changing frequency (to observe glitches)
     outputPWMChangePulse();
 
-    // GLITCH-FREE UPDATE WITHOUT STOPPING PWM
-    // Uses MCPWM shadow registers - new value loads at next TEZ event
-    // Critical section ensures the write completes before TEZ event
+    // TRULY GLITCH-FREE UPDATE USING LL API
+    // Calculate new prescaler and period for target frequency
+    uint32_t new_prescaler, new_period;
+    calculatePWMParameters(frequency, new_prescaler, new_period);
 
-    esp_err_t err;
+    // Check if prescaler needs to change
+    if (new_prescaler != pwmPrescaler) {
+        // Prescaler change required - must use high-level API (will stop PWM briefly)
+        Serial.printf("[UART1] ⚠️ Prescaler change required (%u → %u), brief PWM stop unavoidable\n",
+                     pwmPrescaler, new_prescaler);
 
-    taskENTER_CRITICAL(&mux);
-    err = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
-    taskEXIT_CRITICAL(&mux);
+        esp_err_t err = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
+        if (err != ESP_OK) {
+            Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err));
+            return false;
+        }
 
-    if (err != ESP_OK) {
-        Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err));
-        return false;
+        // Update stored values
+        pwmPrescaler = new_prescaler;
+        pwmPeriod = new_period;
+        pwmFrequency = frequency;
+
+        Serial.printf("[UART1] PWM frequency updated: %u Hz (prescaler=%u, period=%u)\n",
+                     frequency, pwmPrescaler, pwmPeriod);
+    } else {
+        // Same prescaler - update period only using LL API (no PWM stop!)
+        updatePWMRegistersDirectly(new_period, pwmDuty);
+
+        // Update stored values
+        pwmPeriod = new_period;
+        pwmFrequency = frequency;
+
+        Serial.printf("[UART1] PWM frequency updated (no-stop): %u Hz (period=%u)\n",
+                     frequency, pwmPeriod);
     }
-
-    pwmFrequency = frequency;
-
-    // MCPWM automatically maintains duty cycle percentage after frequency change
-    // No need to re-apply duty cycle like LEDC
-
-    Serial.printf("[UART1] PWM frequency updated (no-stop): %u Hz\n", frequency);
 
     return true;
 }
@@ -272,30 +286,13 @@ bool UART1Mux::setPWMDuty(float duty) {
     // Output pulse on GPIO 12 BEFORE changing duty cycle (to observe glitches)
     outputPWMChangePulse();
 
-    // GLITCH-FREE UPDATE WITHOUT STOPPING PWM
-    // Uses MCPWM shadow registers - new value loads at next TEZ event
-    // Critical section ensures both writes complete before TEZ event
-
-    esp_err_t err;
-
-    taskENTER_CRITICAL(&mux);
-
-    // Set MCPWM duty cycle (directly in percentage 0.0-100.0)
-    // Note: mcpwm_set_duty_type() is called only once during initialization in initPWM()
-    // We don't call it here to avoid triggering immediate updates
-    err = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
-                         MCPWM_GEN_UART1_PWM, duty);
-
-    taskEXIT_CRITICAL(&mux);
-
-    if (err != ESP_OK) {
-        Serial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err));
-        return false;
-    }
+    // TRULY GLITCH-FREE UPDATE USING LL API
+    // Update duty shadow register only (period unchanged)
+    updatePWMRegistersDirectly(pwmPeriod, duty);
 
     pwmDuty = duty;
 
-    Serial.printf("[UART1] PWM duty updated (no-stop): %.1f%%\n", duty);
+    Serial.printf("[UART1] PWM duty updated (no-stop, LL API): %.1f%%\n", duty);
 
     return true;
 }
@@ -317,59 +314,49 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     // Output pulse on GPIO 12 BEFORE changing parameters (to observe glitches)
     outputPWMChangePulse();
 
-    // GLITCH-FREE ATOMIC UPDATE WITHOUT STOPPING PWM
-    //
-    // Strategy: Use MCPWM shadow registers with proper configuration
-    // - Only call mcpwm_set_frequency() if frequency actually changes
-    // - mcpwm_set_duty() and mcpwm_set_duty_type() update shadow registers
-    // - Shadow registers load at next TEZ event (Timer Equals Zero)
-    // - Critical section ensures atomic writes
+    // TRULY GLITCH-FREE ATOMIC UPDATE USING LL API
+    // Calculate new prescaler and period for target frequency
+    uint32_t new_prescaler, new_period;
+    calculatePWMParameters(frequency, new_prescaler, new_period);
 
-    esp_err_t err_freq = ESP_OK;
-    esp_err_t err_duty;
+    // Check if prescaler needs to change
+    if (new_prescaler != pwmPrescaler) {
+        // Prescaler change required - must use high-level API (will stop PWM briefly)
+        Serial.printf("[UART1] ⚠️ Prescaler change required (%u → %u), brief PWM stop unavoidable\n",
+                     pwmPrescaler, new_prescaler);
 
-    // Remember if frequency changed (for debug output)
-    bool freqChanged = (frequency != pwmFrequency);
+        esp_err_t err_freq = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
+        if (err_freq != ESP_OK) {
+            Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err_freq));
+            return false;
+        }
 
-    // Enter critical section to ensure atomic shadow register writes
-    // This prevents a TEZ event from occurring between writes
-    taskENTER_CRITICAL(&mux);
+        esp_err_t err_duty = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                                            MCPWM_GEN_UART1_PWM, duty);
+        if (err_duty != ESP_OK) {
+            Serial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err_duty));
+            return false;
+        }
 
-    // Update frequency ONLY if it changed (avoid unnecessary timer reconfiguration)
-    // mcpwm_set_frequency() may internally stop/restart timer in some ESP-IDF versions
-    if (freqChanged) {
-        err_freq = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
-    }
+        // Update stored values
+        pwmPrescaler = new_prescaler;
+        pwmPeriod = new_period;
+        pwmFrequency = frequency;
+        pwmDuty = duty;
 
-    // Update duty cycle shadow register (always update, even if same value)
-    // Note: mcpwm_set_duty_type() is called only once during initialization in initPWM()
-    // We don't call it here to avoid triggering immediate updates
-    err_duty = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
-                              MCPWM_GEN_UART1_PWM, duty);
-
-    // Exit critical section - shadow registers are now ready
-    // At the next TEZ event, hardware will automatically load values
-    taskEXIT_CRITICAL(&mux);
-
-    // Check for errors
-    if (err_freq != ESP_OK) {
-        Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err_freq));
-        return false;
-    }
-
-    if (err_duty != ESP_OK) {
-        Serial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err_duty));
-        return false;
-    }
-
-    // Update stored values
-    pwmFrequency = frequency;
-    pwmDuty = duty;
-
-    if (freqChanged) {
-        Serial.printf("[UART1] PWM updated atomically (no-stop): %u Hz, %.1f%%\n", frequency, duty);
+        Serial.printf("[UART1] PWM updated: %u Hz, %.1f%% (prescaler=%u, period=%u)\n",
+                     frequency, duty, pwmPrescaler, pwmPeriod);
     } else {
-        Serial.printf("[UART1] PWM duty updated (no-stop): %.1f%% (freq unchanged: %u Hz)\n", duty, frequency);
+        // Same prescaler - update period and duty using LL API (no PWM stop!)
+        updatePWMRegistersDirectly(new_period, duty);
+
+        // Update stored values
+        pwmPeriod = new_period;
+        pwmFrequency = frequency;
+        pwmDuty = duty;
+
+        Serial.printf("[UART1] PWM updated (no-stop, LL API): %u Hz, %.1f%% (period=%u)\n",
+                     frequency, duty, pwmPeriod);
     }
 
     return true;
@@ -534,9 +521,14 @@ bool UART1Mux::initPWM() {
     mcpwm_set_duty_type(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
                         MCPWM_GEN_UART1_PWM, MCPWM_DUTY_MODE_0);
 
+    // Step 5: Calculate and store prescaler/period for runtime updates
+    // This allows us to update frequency without calling mcpwm_set_frequency()
+    calculatePWMParameters(pwmFrequency, pwmPrescaler, pwmPeriod);
+
     pwmEnabled = true;
     Serial.printf("[UART1] ✅ MCPWM PWM initialized (GPIO %d, %u Hz, %.1f%% duty)\n",
                  PIN_UART1_TX, pwmFrequency, pwmDuty);
+    Serial.printf("[UART1] ℹ️ Initial prescaler=%u, period=%u ticks\n", pwmPrescaler, pwmPeriod);
     return true;
 }
 
@@ -747,4 +739,65 @@ void UART1Mux::outputPWMChangePulse() {
     gpio_set_level((gpio_num_t)PIN_PWM_CHANGE_PULSE, 1);  // HIGH
     delayMicroseconds(10);                                  // 10µs pulse width
     gpio_set_level((gpio_num_t)PIN_PWM_CHANGE_PULSE, 0);  // LOW
+}
+
+// ============================================================================
+// PWM Low-Level Register Manipulation
+// ============================================================================
+
+void UART1Mux::calculatePWMParameters(uint32_t frequency, uint32_t& prescaler, uint32_t& period) {
+    // ESP32-S3 MCPWM uses APB clock: 80 MHz
+    // Formula: output_freq = APB_CLK / (prescaler * period)
+    // We want: prescaler * period = APB_CLK / output_freq
+
+    const uint32_t APB_CLK = 80000000;  // 80 MHz
+    uint32_t target_ticks = APB_CLK / frequency;
+
+    // Find optimal prescaler and period combination
+    // Goal: Maximize period for better resolution while keeping prescaler in range (1-256)
+
+    // Start with prescaler = 1 for maximum resolution
+    prescaler = 1;
+    period = target_ticks;
+
+    // If period exceeds 65535 (16-bit limit), increase prescaler
+    while (period > 65535 && prescaler < 256) {
+        prescaler++;
+        period = target_ticks / prescaler;
+    }
+
+    // Ensure period is at least 2 (minimum valid value)
+    if (period < 2) {
+        period = 2;
+    }
+}
+
+void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
+    // Direct register manipulation using LL API to avoid timer stop/restart
+    // This updates MCPWM shadow registers which will be loaded at next TEZ event
+
+    // Calculate comparator value from duty cycle
+    // duty is percentage (0.0 - 100.0)
+    uint32_t cmpr = (uint32_t)((duty / 100.0) * period);
+
+    // Ensure cmpr doesn't exceed period
+    if (cmpr > period) {
+        cmpr = period;
+    }
+
+    // Write to shadow registers using LL API
+    // Note: UART1 PWM uses MCPWM_UNIT_1 (MCPWM1), not MCPWM0
+    taskENTER_CRITICAL(&mux);
+
+    // Update period shadow register (affects frequency)
+    mcpwm_ll_timer_set_period(&MCPWM1, MCPWM_TIMER_UART1_PWM, period);
+
+    // Update comparator A shadow register (affects duty)
+    // MCPWM_TIMER_0 has operator 0, comparator A
+    mcpwm_ll_operator_set_compare_value(&MCPWM1, 0, 0, cmpr);
+
+    // Trigger soft sync to apply shadow registers at next TEZ
+    mcpwm_ll_timer_trigger_soft_sync(&MCPWM1, MCPWM_TIMER_UART1_PWM);
+
+    taskEXIT_CRITICAL(&mux);
 }

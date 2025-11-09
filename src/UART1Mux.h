@@ -346,6 +346,8 @@ private:
     uint32_t pwmFrequency = 1000;      // Default 1kHz
     float pwmDuty = 50.0;              // Default 50%
     bool pwmEnabled = false;
+    uint32_t pwmPrescaler = 0;         // Current prescaler value
+    uint32_t pwmPeriod = 0;            // Current period value (ticks)
 
     // Motor control parameters (integrated from old MotorControl)
     uint32_t polePairs = 2;            // Motor pole pairs (default 2)
@@ -375,6 +377,10 @@ private:
     bool validateUARTConfig(uint32_t baudRate, uart_stop_bits_t stopBits,
                            uart_parity_t parity, uart_word_length_t dataBits);
     bool validatePWMFrequency(uint32_t frequency);
+
+    // PWM low-level register manipulation helpers
+    void calculatePWMParameters(uint32_t frequency, uint32_t& prescaler, uint32_t& period);
+    void updatePWMRegistersDirectly(uint32_t period, float duty);
 
     // Debug/Test functions
     void initPWMChangePulse();    // Initialize GPIO 12 for pulse output
