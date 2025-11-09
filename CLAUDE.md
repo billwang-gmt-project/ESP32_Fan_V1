@@ -164,6 +164,158 @@ The CDC serial interface (`USBSerial`) requires DTR (Data Terminal Ready) to be 
 
 This is intentional behavior to ensure reliable data reception and should be maintained.
 
+## MCPWM Glitch-Free PWM Updates - CRITICAL IMPLEMENTATION
+
+### Overview
+
+The UART1 PWM/RPM mode uses ESP32-S3's MCPWM peripheral for high-precision motor control. Achieving **completely glitch-free** frequency and duty cycle updates requires careful implementation of shadow register mode and clock frequency detection.
+
+**Critical Requirements:**
+- ✅ Frequency and duty changes must NOT cause PWM interruptions
+- ✅ All updates must synchronize to TEZ (Timer Equals Zero) events
+- ✅ MCPWM clock frequency must be dynamically detected (NOT assumed)
+- ✅ Prescaler/period state must sync with actual hardware registers
+
+### Key Implementation Principles
+
+#### 1. **NEVER Assume Fixed Clock Frequency**
+
+❌ **WRONG - Hardcoded clock assumption:**
+```cpp
+const uint32_t APB_CLK = 80000000;  // DANGEROUS! May not be actual clock
+uint32_t period = APB_CLK / frequency;
+```
+
+✅ **CORRECT - Dynamic clock detection:**
+```cpp
+// Detect actual MCPWM clock at initialization
+uint32_t cfg0 = MCPWM1.timer[0].timer_cfg0.val;
+mcpwmClockFreq = init_frequency × (cfg0 & 0xFF) × ((cfg0 >> 8) & 0xFFFF);
+
+// Use detected clock for all calculations
+uint32_t period = mcpwmClockFreq / target_frequency;
+```
+
+**Why:** MCPWM clock source may vary (e.g., 2 MHz instead of expected 80 MHz), causing 40× frequency errors if assumed incorrectly.
+
+#### 2. **Maximize Shadow Register Mode Usage**
+
+The strategy is to **keep prescaler constant** and only change period when possible:
+
+```cpp
+// Calculate period needed with CURRENT prescaler
+uint32_t new_period = mcpwmClockFreq / (target_freq × current_prescaler);
+
+if (new_period >= 2 && new_period <= 65535) {
+    // ✅ Use shadow register mode (glitch-free!)
+    updatePWMRegistersDirectly(new_period, duty);
+} else {
+    // ⚠️ Must change prescaler (may glitch)
+    mcpwm_set_frequency(...);
+}
+```
+
+**Benefits:**
+- Same prescaler → shadow register mode → TEZ-synchronized → **no glitch**
+- Different prescaler → immediate update → **may glitch**
+
+#### 3. **Sync with Actual Hardware State**
+
+ESP-IDF's `mcpwm_set_frequency()` uses its own prescaler/period calculation algorithm which may differ from ours.
+
+❌ **WRONG - Assume ESP-IDF uses our values:**
+```cpp
+mcpwm_set_frequency(unit, timer, 20000);
+pwmPrescaler = our_calculated_prescaler;  // May be wrong!
+pwmPeriod = our_calculated_period;        // May be wrong!
+```
+
+✅ **CORRECT - Read actual register values:**
+```cpp
+mcpwm_set_frequency(unit, timer, 20000);
+
+// Read what ESP-IDF actually wrote
+uint32_t cfg0 = MCPWM1.timer[0].timer_cfg0.val;
+pwmPrescaler = (cfg0 & 0xFF);              // ✓ Actual value
+pwmPeriod = ((cfg0 >> 8) & 0xFFFF);        // ✓ Actual value
+```
+
+**Why:** Next update will use stored prescaler for comparison. If stored value doesn't match hardware, wrong path will be chosen.
+
+#### 4. **Unified Shadow Register Mode for Duty and Frequency**
+
+Both period and duty updates should use shadow register mode:
+
+```cpp
+void updatePWMRegistersDirectly(uint32_t period, float duty) {
+    taskENTER_CRITICAL(&mux);
+
+    // Update period with shadow mode (bit 24 = 1)
+    if (period != pwmPeriod) {
+        uint32_t cfg0 = (pwmPrescaler & 0xFF) | (period << 8) | (1 << 24);
+        MCPWM1.timer[0].timer_cfg0.val = cfg0;
+        pwmPeriod = period;
+    }
+
+    taskEXIT_CRITICAL(&mux);
+
+    // Update duty (mcpwm_set_duty already uses TEZ sync)
+    mcpwm_set_duty(unit, timer, gen, duty);
+    pwmDuty = duty;
+}
+```
+
+**Both updates take effect at next TEZ event → atomic update → no glitch!**
+
+### Common Mistakes to Avoid
+
+| Mistake | Consequence | Solution |
+|---------|-------------|----------|
+| **Hardcoded 80MHz clock** | 40× frequency error if actual clock is 2MHz | Detect clock at init |
+| **Assume ESP-IDF prescaler** | Wrong path selection → glitches | Read actual register values |
+| **Immediate period update** | PWM stops during transition | Use shadow register mode (bit 24=1) |
+| **Separate period/duty updates** | Non-atomic → glitches | Update both in same critical section |
+| **Blocking delays in callbacks** | Even 10µs delay causes glitches | Use non-blocking GPIO toggles |
+
+### Testing Verification
+
+Test the implementation with frequency changes:
+
+```bash
+SET PWM 20000 50    # 20 kHz, 50% duty
+SET PWM 10000 50    # 10 kHz, 50% duty
+SET PWM 20000 50    # Back to 20 kHz
+```
+
+**Expected Results:**
+- ✅ All frequencies accurate (verify with oscilloscope)
+- ✅ First transition may glitch (prescaler change from initialization)
+- ✅ Second and third transitions: **completely glitch-free** (same prescaler, shadow register mode)
+
+### Debug Output
+
+Enable debug output to verify correct operation:
+
+```
+[UART1] 🔍 Detected MCPWM clock: 2000000 Hz (2.0 MHz)
+[UART1] 🧮 Clock=2000000 Hz, Target freq=20000 Hz, current prescaler=2
+[UART1] ✅ GLITCH-FREE PATH: Keep prescaler=2, period: 4000 → 2000
+```
+
+If clock detection shows unexpected value, investigate MCPWM clock source configuration.
+
+### Implementation Files
+
+- **`src/UART1Mux.cpp`**: PWM initialization, clock detection, update logic
+- **`src/UART1Mux.h`**: `mcpwmClockFreq` variable, prescaler/period state
+- **`src/CommandParser.cpp`**: Debug output visible in CDC console
+
+### References
+
+- ESP32-S3 Technical Reference Manual - MCPWM Chapter
+- ESP-IDF MCPWM API Documentation
+- This implementation: commits `03979ea`, `4fcbb1d`, `e9d0b32`
+
 ## Code Structure
 
 ### Key Files
