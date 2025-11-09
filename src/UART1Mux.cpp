@@ -806,9 +806,11 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
     }
 
     // Update comparator A value directly (for duty cycle)
-    // Try accessing through generator structure
-    // Generator A comparator value register
-    MCPWM1.gen[0].gen_a.cmpr_value = cmpr_val;
+    // Use direct register address to bypass structure definition issues
+    // MCPWM1 base address: 0x6001C000 (ESP32-S3)
+    // Generator 0 Comparator A offset: 0x0014
+    volatile uint32_t* gen0a_cmpr_reg = (volatile uint32_t*)(0x6001C000 + 0x0014);
+    *gen0a_cmpr_reg = cmpr_val;
 
     taskEXIT_CRITICAL(&mux);
 }
