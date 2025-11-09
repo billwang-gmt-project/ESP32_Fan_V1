@@ -201,16 +201,15 @@ void PeripheralManager::handleKeyEvents() {
         }
     } else if (event2 == UserKeys::EVENT_LONG_PRESS) {
         // Long press: Emergency stop
-        // Motor control check removed (now in UART1) {
-            uart1.setPWMEnabled(false); uart1.setPWMDuty(0.0);
-            Serial.println("[Keys] EMERGENCY STOP triggered by Key 2");
-            // Triple beep to indicate emergency stop
-            buzzer.beep(2000, 100);
-            delay(50);
-            buzzer.beep(2000, 100);
-            delay(50);
-            buzzer.beep(2000, 100);
-        }
+        uart1.setPWMEnabled(false);
+        uart1.setPWMDuty(0.0);
+        Serial.println("[Keys] EMERGENCY STOP triggered by Key 2");
+        // Triple beep to indicate emergency stop
+        buzzer.beep(2000, 100);
+        delay(50);
+        buzzer.beep(2000, 100);
+        delay(50);
+        buzzer.beep(2000, 100);
     }
 
     // Check Key 3 (Enter/Start) - Future use
@@ -221,7 +220,7 @@ void PeripheralManager::handleKeyEvents() {
         buzzer.beep(1500, 50);
     } else if (event3 == UserKeys::EVENT_LONG_PRESS) {
         // Long press Key 3: Clear emergency stop
-        if (pMotorControl && !uart1.isPWMEnabled()) {
+        if (!uart1.isPWMEnabled()) {
             uart1.setPWMEnabled(true);
             Serial.println("[Keys] Emergency stop CLEARED by Key 3");
             // Confirmation beep

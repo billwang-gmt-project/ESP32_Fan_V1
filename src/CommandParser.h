@@ -58,11 +58,13 @@ private:
     void handleLoadSettings(ICommandResponse* response);
     void handleResetSettings(ICommandResponse* response);
 
-    // Advanced features (Priority 3)
-    void handleSetPWMFreqRamped(ICommandResponse* response, uint32_t freq, uint32_t rampTimeMs);
-    void handleSetPWMDutyRamped(ICommandResponse* response, float duty, uint32_t rampTimeMs);
-    void handleSetRPMFilterSize(ICommandResponse* response, uint8_t size);
-    void handleFilterStatus(ICommandResponse* response);
+    // Advanced features (Priority 3) - REMOVED IN v3.0
+    // These functions were removed when motor control merged to UART1
+    // Ramping and filtering features are not available in v3.0
+    // void handleSetPWMFreqRamped(ICommandResponse* response, uint32_t freq, uint32_t rampTimeMs);
+    // void handleSetPWMDutyRamped(ICommandResponse* response, float duty, uint32_t rampTimeMs);
+    // void handleSetRPMFilterSize(ICommandResponse* response, uint8_t size);
+    // void handleFilterStatus(ICommandResponse* response);
 
     // WiFi and Web Server commands (WiFi Web Server feature)
     void handleWiFiConnect(const String& cmd, ICommandResponse* response);

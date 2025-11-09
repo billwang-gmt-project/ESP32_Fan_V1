@@ -123,58 +123,58 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
         return true;
     }
 
-    // 濾波器狀態
-    if (upper == "FILTER STATUS") {
-        handleFilterStatus(response);
-        return true;
-    }
+    // 濾波器狀態 - REMOVED IN v3.0 (filtering not available)
+    // if (upper == "FILTER STATUS") {
+    //     handleFilterStatus(response);
+    //     return true;
+    // }
 
-    // RAMP 命令 - 格式: RAMP PWM_FREQ <Hz> <ms> 或 RAMP PWM_DUTY <%> <ms>
-    if (upper.startsWith("RAMP ")) {
-        String params = upper.substring(5);  // Remove "RAMP "
-        params.trim();
-
-        // Parse: PARAMETER VALUE TIME
-        int firstSpace = params.indexOf(' ');
-        if (firstSpace == -1) {
-            response->println("❌ 錯誤：格式應為 RAMP <parameter> <value> <time_ms>");
-            return true;
-        }
-
-        String parameter = params.substring(0, firstSpace);
-        parameter.trim();
-
-        String rest = params.substring(firstSpace + 1);
-        rest.trim();
-
-        int secondSpace = rest.indexOf(' ');
-        if (secondSpace == -1) {
-            response->println("❌ 錯誤：格式應為 RAMP <parameter> <value> <time_ms>");
-            return true;
-        }
-
-        String value = rest.substring(0, secondSpace);
-        value.trim();
-
-        String timeStr = rest.substring(secondSpace + 1);
-        timeStr.trim();
-        uint32_t rampTimeMs = timeStr.toInt();
-
-        if (parameter == "PWM_FREQ") {
-            uint32_t freq = value.toInt();
-            handleSetPWMFreqRamped(response, freq, rampTimeMs);
-            return true;
-        }
-
-        if (parameter == "PWM_DUTY") {
-            float duty = value.toFloat();
-            handleSetPWMDutyRamped(response, duty, rampTimeMs);
-            return true;
-        }
-
-        response->println("❌ 錯誤：不支援的 RAMP 參數（支援: PWM_FREQ, PWM_DUTY）");
-        return true;
-    }
+    // RAMP 命令 - REMOVED IN v3.0 (ramping not available)
+    // if (upper.startsWith("RAMP ")) {
+    //     String params = upper.substring(5);  // Remove "RAMP "
+    //     params.trim();
+    //
+    //     // Parse: PARAMETER VALUE TIME
+    //     int firstSpace = params.indexOf(' ');
+    //     if (firstSpace == -1) {
+    //         response->println("❌ 錯誤：格式應為 RAMP <parameter> <value> <time_ms>");
+    //         return true;
+    //     }
+    //
+    //     String parameter = params.substring(0, firstSpace);
+    //     parameter.trim();
+    //
+    //     String rest = params.substring(firstSpace + 1);
+    //     rest.trim();
+    //
+    //     int secondSpace = rest.indexOf(' ');
+    //     if (secondSpace == -1) {
+    //         response->println("❌ 錯誤：格式應為 RAMP <parameter> <value> <time_ms>");
+    //         return true;
+    //     }
+    //
+    //     String value = rest.substring(0, secondSpace);
+    //     value.trim();
+    //
+    //     String timeStr = rest.substring(secondSpace + 1);
+    //     timeStr.trim();
+    //     uint32_t rampTimeMs = timeStr.toInt();
+    //
+    //     if (parameter == "PWM_FREQ") {
+    //         uint32_t freq = value.toInt();
+    //         handleSetPWMFreqRamped(response, freq, rampTimeMs);
+    //         return true;
+    //     }
+    //
+    //     if (parameter == "PWM_DUTY") {
+    //         float duty = value.toFloat();
+    //         handleSetPWMDutyRamped(response, duty, rampTimeMs);
+    //         return true;
+    //     }
+    //
+    //     response->println("❌ 錯誤：不支援的 RAMP 參數（支援: PWM_FREQ, PWM_DUTY）");
+    //     return true;
+    // }
 
     // 馬達停止
     if (upper == "MOTOR STOP") {
@@ -231,12 +231,12 @@ bool CommandParser::processCommand(const String& cmd, ICommandResponse* response
                 return true;
             }
 
-            // SET RPM_FILTER_SIZE <size>
-            if (parameter == "RPM_FILTER_SIZE") {
-                uint8_t size = value.toInt();
-                handleSetRPMFilterSize(response, size);
-                return true;
-            }
+            // SET RPM_FILTER_SIZE <size> - REMOVED IN v3.0 (filtering not available)
+            // if (parameter == "RPM_FILTER_SIZE") {
+            //     uint8_t size = value.toInt();
+            //     handleSetRPMFilterSize(response, size);
+            //     return true;
+            // }
 
             // SET POLE_PAIRS <num>
             if (parameter == "POLE_PAIRS") {
@@ -836,8 +836,6 @@ void CommandParser::handleSetMaxRPM(ICommandResponse* response, uint32_t maxRPM)
 }
 
 void CommandParser::handleSetLEDBrightness(ICommandResponse* response, uint8_t brightness) {
-    motorSettingsManager.get().ledBrightness = brightness;
-
     // Apply brightness to LED hardware immediately
     if (statusLED.isInitialized()) {
         statusLED.setBrightness(brightness);
@@ -846,7 +844,7 @@ void CommandParser::handleSetLEDBrightness(ICommandResponse* response, uint8_t b
         response->printf("✅ LED 亮度設定為: %d (LED 未初始化)\n", brightness);
     }
 
-    response->println("ℹ️ 使用 SAVE 命令儲存設定");
+    // Note: LED brightness is not persisted in v3.0 (removed with motor settings merge)
 
     // Notify web clients about the change
     if (webServerManager.isRunning()) {
@@ -981,87 +979,88 @@ void CommandParser::handleResetSettings(ICommandResponse* response) {
 }
 
 // ==================== Advanced Features (Priority 3) ====================
+// REMOVED IN v3.0: Motor control merged to UART1, ramping and filtering not available
 
-void CommandParser::handleSetPWMFreqRamped(ICommandResponse* response, uint32_t freq, uint32_t rampTimeMs) {
-    if (freq < MotorLimits::MIN_FREQUENCY || freq > MotorLimits::MAX_FREQUENCY) {
-        response->printf("❌ 錯誤：頻率必須在 %d - %d Hz 之間\n",
-                        MotorLimits::MIN_FREQUENCY, MotorLimits::MAX_FREQUENCY);
-        return;
-    }
-
-    if (rampTimeMs == 0) {
-        response->println("⚠️ 漸變時間為 0，將立即設定");
-        handleSetPWMFreq(response, freq);
-        return;
-    }
-
-    if (motorControl.setPWMFrequencyRamped(freq, rampTimeMs)) {
-        response->printf("✅ 開始頻率漸變: %d Hz → %d Hz (耗時 %d ms)\n",
-                        motorControl.getPWMFrequency(), freq, rampTimeMs);
-
-        // Notify web clients - they will see gradual change via periodic updates
-        if (webServerManager.isRunning()) {
-            webServerManager.broadcastStatus();
-        }
-    } else {
-        response->println("❌ 啟動頻率漸變失敗");
-    }
-}
-
-void CommandParser::handleSetPWMDutyRamped(ICommandResponse* response, float duty, uint32_t rampTimeMs) {
-    if (duty < MotorLimits::MIN_DUTY || duty > MotorLimits::MAX_DUTY) {
-        response->printf("❌ 錯誤：占空比必須在 %.0f - %.0f%% 之間\n",
-                        MotorLimits::MIN_DUTY, MotorLimits::MAX_DUTY);
-        return;
-    }
-
-    if (rampTimeMs == 0) {
-        response->println("⚠️ 漸變時間為 0，將立即設定");
-        handleSetPWMDuty(response, duty);
-        return;
-    }
-
-    if (motorControl.setPWMDutyRamped(duty, rampTimeMs)) {
-        response->printf("✅ 開始占空比漸變: %.1f%% → %.1f%% (耗時 %d ms)\n",
-                        motorControl.getPWMDuty(), duty, rampTimeMs);
-
-        // Notify web clients - they will see gradual change via periodic updates
-        if (webServerManager.isRunning()) {
-            webServerManager.broadcastStatus();
-        }
-    } else {
-        response->println("❌ 啟動占空比漸變失敗");
-    }
-}
-
-void CommandParser::handleSetRPMFilterSize(ICommandResponse* response, uint8_t size) {
-    if (size < 1 || size > 20) {
-        response->println("❌ 錯誤：濾波器大小必須在 1 - 20 之間");
-        return;
-    }
-
-    motorControl.setRPMFilterSize(size);
-    response->printf("✅ RPM 濾波器大小已設定為: %d 個樣本\n", size);
-}
-
-void CommandParser::handleFilterStatus(ICommandResponse* response) {
-    response->println("=== RPM 濾波器狀態 ===");
-    response->printf("濾波器大小: %d 個樣本\n", motorControl.getRPMFilterSize());
-    response->printf("原始 RPM: %.0f RPM\n", motorControl.getRawRPM());
-    response->printf("濾波後 RPM: %.0f RPM\n", motorControl.getCurrentRPM());
-
-    float difference = motorControl.getCurrentRPM() - motorControl.getRawRPM();
-    response->printf("濾波差異: %.1f RPM\n", difference);
-
-    if (motorControl.isRamping()) {
-        response->println("");
-        response->println("⚙️ PWM 漸變進行中...");
-        response->printf("  當前頻率: %d Hz\n", motorControl.getPWMFrequency());
-        response->printf("  當前占空比: %.1f%%\n", motorControl.getPWMDuty());
-    }
-
-    response->println("");
-}
+// void CommandParser::handleSetPWMFreqRamped(ICommandResponse* response, uint32_t freq, uint32_t rampTimeMs) {
+//     if (freq < MotorLimits::MIN_FREQUENCY || freq > MotorLimits::MAX_FREQUENCY) {
+//         response->printf("❌ 錯誤：頻率必須在 %d - %d Hz 之間\n",
+//                         MotorLimits::MIN_FREQUENCY, MotorLimits::MAX_FREQUENCY);
+//         return;
+//     }
+//
+//     if (rampTimeMs == 0) {
+//         response->println("⚠️ 漸變時間為 0，將立即設定");
+//         handleSetPWMFreq(response, freq);
+//         return;
+//     }
+//
+//     if (motorControl.setPWMFrequencyRamped(freq, rampTimeMs)) {
+//         response->printf("✅ 開始頻率漸變: %d Hz → %d Hz (耗時 %d ms)\n",
+//                         motorControl.getPWMFrequency(), freq, rampTimeMs);
+//
+//         // Notify web clients - they will see gradual change via periodic updates
+//         if (webServerManager.isRunning()) {
+//             webServerManager.broadcastStatus();
+//         }
+//     } else {
+//         response->println("❌ 啟動頻率漸變失敗");
+//     }
+// }
+//
+// void CommandParser::handleSetPWMDutyRamped(ICommandResponse* response, float duty, uint32_t rampTimeMs) {
+//     if (duty < MotorLimits::MIN_DUTY || duty > MotorLimits::MAX_DUTY) {
+//         response->printf("❌ 錯誤：占空比必須在 %.0f - %.0f%% 之間\n",
+//                         MotorLimits::MIN_DUTY, MotorLimits::MAX_DUTY);
+//         return;
+//     }
+//
+//     if (rampTimeMs == 0) {
+//         response->println("⚠️ 漸變時間為 0，將立即設定");
+//         handleSetPWMDuty(response, duty);
+//         return;
+//     }
+//
+//     if (motorControl.setPWMDutyRamped(duty, rampTimeMs)) {
+//         response->printf("✅ 開始占空比漸變: %.1f%% → %.1f%% (耗時 %d ms)\n",
+//                         motorControl.getPWMDuty(), duty, rampTimeMs);
+//
+//         // Notify web clients - they will see gradual change via periodic updates
+//         if (webServerManager.isRunning()) {
+//             webServerManager.broadcastStatus();
+//         }
+//     } else {
+//         response->println("❌ 啟動占空比漸變失敗");
+//     }
+// }
+//
+// void CommandParser::handleSetRPMFilterSize(ICommandResponse* response, uint8_t size) {
+//     if (size < 1 || size > 20) {
+//         response->println("❌ 錯誤：濾波器大小必須在 1 - 20 之間");
+//         return;
+//     }
+//
+//     motorControl.setRPMFilterSize(size);
+//     response->printf("✅ RPM 濾波器大小已設定為: %d 個樣本\n", size);
+// }
+//
+// void CommandParser::handleFilterStatus(ICommandResponse* response) {
+//     response->println("=== RPM 濾波器狀態 ===");
+//     response->printf("濾波器大小: %d 個樣本\n", motorControl.getRPMFilterSize());
+//     response->printf("原始 RPM: %.0f RPM\n", motorControl.getRawRPM());
+//     response->printf("濾波後 RPM: %.0f RPM\n", motorControl.getCurrentRPM());
+//
+//     float difference = motorControl.getCurrentRPM() - motorControl.getRawRPM();
+//     response->printf("濾波差異: %.1f RPM\n", difference);
+//
+//     if (motorControl.isRamping()) {
+//         response->println("");
+//         response->println("⚙️ PWM 漸變進行中...");
+//         response->printf("  當前頻率: %d Hz\n", motorControl.getPWMFrequency());
+//         response->printf("  當前占空比: %.1f%%\n", motorControl.getPWMDuty());
+//     }
+//
+//     response->println("");
+// }
 
 // ==================== WiFi and Web Server Commands ====================
 
