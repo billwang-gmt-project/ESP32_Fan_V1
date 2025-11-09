@@ -49,6 +49,17 @@ ESP32_KEYWORDS = ["ESP32", "RYMCU", "USB", "Composite", "HID"]
 
 # HID 參數
 HID_PACKET_SIZE = 64
+HID_PROTOCOL_HEADER_SIZE = 3  # 0xA1 protocol header (type + length + reserved)
+HID_MAX_COMMAND_LENGTH = 61  # 64 - 3
+
+# 回應收集參數
+MAX_IDLE_POLLS = 10  # 連續無資料時的最大輪詢次數
+TEST_COMMAND_DELAY = 0.5  # 單一介面測試時命令之間的延遲（秒）
+BLE_COMMAND_DELAY = 2.0  # BLE 測試時命令之間的延遲（秒）
+MULTI_INTERFACE_DELAY = 0.3  # 多介面測試時介面切換延遲（秒）
+
+# BLE 參數
+DEFAULT_BLE_SCAN_TIMEOUT = 8.0  # BLE 掃描超時（秒）
 
 # 檢查依賴
 try:
@@ -92,7 +103,7 @@ hid_data_lock = threading.Lock()
 received_ble_data = []
 ble_data_lock = threading.Lock()
 
-def find_cdc_device():
+def find_cdc_device() -> Optional[serial.Serial]:
     """掃描 COM ports 找到 ESP32-S3（只掃描 USB CDC 裝置）"""
     print("\n" + "=" * 60)
     print("掃描 CDC (Serial) 介面")
@@ -105,8 +116,7 @@ def find_cdc_device():
         description = port.description.lower() if port.description else ""
 
         # 跳過藍牙裝置（支援中英文關鍵字）
-        bluetooth_keywords = ['bluetooth', 'bt ', '藍牙', '藍芽', '透過藍牙', '透過藍芽']
-        if any(keyword in description for keyword in bluetooth_keywords):
+        if any(keyword in description for keyword in BLUETOOTH_KEYWORDS):
             continue
 
         # 只掃描有 VID/PID 的 USB 裝置（虛擬 COM port 通常沒有 VID/PID）
@@ -114,8 +124,7 @@ def find_cdc_device():
             continue
 
         # 跳過其他非 CDC 裝置
-        skip_keywords = ['printer', 'modem', 'dialup', 'irda', '印表機', '數據機']
-        if any(keyword in description for keyword in skip_keywords):
+        if any(keyword in description for keyword in SKIP_KEYWORDS):
             continue
 
         print(f"嘗試 {port_name}...", end=" ")
@@ -123,9 +132,9 @@ def find_cdc_device():
         try:
             ser = serial.Serial(
                 port=port_name,
-                baudrate=115200,
-                timeout=0.5,  # 讀取 timeout
-                write_timeout=1.0,  # 寫入 timeout
+                baudrate=DEFAULT_BAUDRATE,
+                timeout=READ_TIMEOUT,
+                write_timeout=WRITE_TIMEOUT,
                 rtscts=False
             )
 
@@ -134,7 +143,7 @@ def find_cdc_device():
             ser.rts = False
 
             # 等待裝置穩定（給足夠時間讓設備識別 DTR 信號）
-            time.sleep(0.5)
+            time.sleep(DEVICE_STABILIZATION_DELAY)
 
             ser.reset_input_buffer()
             ser.reset_output_buffer()
@@ -142,35 +151,36 @@ def find_cdc_device():
             ser.flush()
 
             # 使用 timeout 機制讀取回應
-            time.sleep(0.1)
+            time.sleep(PRE_READ_DELAY)
             start_time = time.time()
-            timeout_duration = 2.0
 
-            while (time.time() - start_time) < timeout_duration:
+            while (time.time() - start_time) < RESPONSE_TIMEOUT:
                 if ser.in_waiting > 0:
                     response = ser.readline().decode('utf-8', errors='ignore').strip()
-                    if "ESP32" in response or "RYMCU" in response or "USB" in response or "HID" in response or "Composite" in response:
+                    if any(keyword in response for keyword in ESP32_KEYWORDS):
                         print(f"✅ 找到！({response})")
                         return ser
                 else:
-                    time.sleep(0.05)
+                    time.sleep(POLL_INTERVAL)
 
             print("❌")
             ser.close()
 
-        except Exception as e:
-            print(f"⚠️  {e}")
+        except serial.SerialException as e:
+            print(f"⚠️  序列埠錯誤: {e}")
+        except OSError as e:
+            print(f"⚠️  系統錯誤: {e}")
 
     print("❌ 未找到 CDC 介面")
     return None
 
-def on_hid_data_handler(data):
+def on_hid_data_handler(data: List[int]) -> None:
     """HID 資料接收回調函式"""
     global received_hid_data
     with hid_data_lock:
         received_hid_data.append(data)
 
-def find_hid_device():
+def find_hid_device() -> Tuple[Optional[any], Optional[any]]:
     """尋找 ESP32-S3 HID 裝置"""
     print("\n" + "=" * 60)
     print("掃描 HID 介面")
@@ -194,17 +204,20 @@ def find_hid_device():
                 return None, None
 
             return device, out_reports[0]
-        except Exception as e:
-            print(f"❌ 無法開啟 HID: {e}")
+        except OSError as e:
+            print(f"❌ 無法開啟 HID (系統錯誤): {e}")
+            return None, None
+        except AttributeError as e:
+            print(f"❌ 無法開啟 HID (設備錯誤): {e}")
             return None, None
     else:
         print("❌ 未找到 HID 介面")
         return None, None
 
-def encode_hid_command(cmd_string):
+def encode_hid_command(cmd_string: str) -> List[int]:
     """編碼 HID 命令（0xA1 協定）- pywinusb 格式"""
     cmd_bytes = cmd_string.encode('utf-8')
-    length = min(len(cmd_bytes), 61)
+    length = min(len(cmd_bytes), HID_MAX_COMMAND_LENGTH)
 
     # pywinusb 需要 65-byte 封包 (1 byte Report ID + 64 bytes data)
     packet = [0]  # Report ID = 0 (無 Report ID)
@@ -212,42 +225,41 @@ def encode_hid_command(cmd_string):
     packet.append(length)   # 命令長度
     packet.append(0x00)     # 保留位元
     packet.extend(cmd_bytes[:length])  # 命令內容
-    packet.extend([0] * (64 - 3 - length))  # 補零到 64 bytes
+    packet.extend([0] * (HID_PACKET_SIZE - HID_PROTOCOL_HEADER_SIZE - length))  # 補零到 64 bytes
 
     return packet
 
-def decode_hid_response(data):
+def decode_hid_response(data: List[int]) -> Optional[str]:
     """解碼 HID 回應 - pywinusb 格式"""
     # data[0] 是 Report ID
     # data[1] 應該是 0xA1
     if len(data) >= 5 and data[1] == 0xA1:
         length = data[2]
-        if 0 < length <= 61:
+        if 0 < length <= HID_MAX_COMMAND_LENGTH:
             try:
                 return bytes(data[4:4+length]).decode('utf-8', errors='ignore')
-            except:
+            except UnicodeDecodeError:
                 return None
     return None
 
-def test_cdc_command(ser, cmd, timeout_sec=2.0):
+def test_cdc_command(ser: Optional[serial.Serial], cmd: str, timeout_sec: float = 2.0) -> Optional[List[str]]:
     """測試 CDC 命令（改良版，更穩定的回應收集）"""
     if not ser:
         return None
 
     # 清空接收緩衝區
     ser.reset_input_buffer()
-    time.sleep(0.1)  # 給裝置一點時間
+    time.sleep(PRE_READ_DELAY)  # 給裝置一點時間
 
     # 發送命令
     ser.write(f"{cmd}\n".encode())
     ser.flush()
 
     # 等待初始回應
-    time.sleep(0.5)
+    time.sleep(COMMAND_RESPONSE_DELAY)
 
     responses = []
     idle_count = 0
-    max_idle = 10  # 連續 10 次沒有資料就結束
 
     start_time = time.time()
     while (time.time() - start_time) < timeout_sec:
@@ -258,14 +270,14 @@ def test_cdc_command(ser, cmd, timeout_sec=2.0):
                 idle_count = 0  # 重置計數器
         else:
             idle_count += 1
-            if idle_count >= max_idle and responses:
+            if idle_count >= MAX_IDLE_POLLS and responses:
                 # 已經收到一些資料，且連續沒有新資料
                 break
-            time.sleep(0.05)
+            time.sleep(POLL_INTERVAL)
 
     return responses
 
-def test_hid_command(hid_device, out_report, cmd, timeout_sec=2.0):
+def test_hid_command(hid_device: Optional[any], out_report: Optional[any], cmd: str, timeout_sec: float = 2.0) -> Optional[List[str]]:
     """測試 HID 命令（改良版，更穩定的回應收集）"""
     global received_hid_data
 
@@ -282,11 +294,10 @@ def test_hid_command(hid_device, out_report, cmd, timeout_sec=2.0):
     out_report.send()
 
     # 等待初始回應
-    time.sleep(0.5)
+    time.sleep(COMMAND_RESPONSE_DELAY)
 
     responses = []
     idle_count = 0
-    max_idle = 10  # 連續 10 次沒有資料就結束
 
     start_time = time.time()
     while (time.time() - start_time) < timeout_sec:
@@ -304,15 +315,15 @@ def test_hid_command(hid_device, out_report, cmd, timeout_sec=2.0):
             idle_count = 0  # 重置計數器
         else:
             idle_count += 1
-            if idle_count >= max_idle and responses:
+            if idle_count >= MAX_IDLE_POLLS and responses:
                 # 已經收到一些資料，且連續沒有新資料
                 break
 
-        time.sleep(0.05)
+        time.sleep(POLL_INTERVAL)
 
     return responses
 
-async def find_ble_device_async(name=BLE_DEVICE_NAME, timeout=8.0):
+async def find_ble_device_async(name: str = BLE_DEVICE_NAME, timeout: float = DEFAULT_BLE_SCAN_TIMEOUT) -> Optional['BleakClient']:
     """掃描並連接 BLE 裝置（async 版本）"""
     print("\n" + "=" * 60)
     print("掃描 BLE 介面")
@@ -325,6 +336,7 @@ async def find_ble_device_async(name=BLE_DEVICE_NAME, timeout=8.0):
         if d.name and name in d.name:
             print(f"✅ 找到！({d.address})")
             try:
+                from bleak.exc import BleakError
                 client = BleakClient(d.address)
                 await client.connect()
                 if client.is_connected:
@@ -332,14 +344,17 @@ async def find_ble_device_async(name=BLE_DEVICE_NAME, timeout=8.0):
                 else:
                     print("❌ 無法連接")
                     return None
-            except Exception as e:
-                print(f"❌ 連接失敗: {e}")
+            except BleakError as e:
+                print(f"❌ BLE 連接失敗: {e}")
+                return None
+            except OSError as e:
+                print(f"❌ 系統錯誤: {e}")
                 return None
 
     print("❌ 未找到")
     return None
 
-def find_ble_device(name=BLE_DEVICE_NAME, timeout=8.0):
+def find_ble_device(name: str = BLE_DEVICE_NAME, timeout: float = DEFAULT_BLE_SCAN_TIMEOUT) -> Optional['BleakClient']:
     """掃描並連接 BLE 裝置（同步包裝）"""
     if not HAS_BLE:
         return None
@@ -350,6 +365,9 @@ def find_ble_device(name=BLE_DEVICE_NAME, timeout=8.0):
         asyncio.set_event_loop(loop)
         client = loop.run_until_complete(find_ble_device_async(name, timeout))
         return client
+    except RuntimeError as e:
+        print(f"❌ BLE event loop 錯誤: {e}")
+        return None
     except Exception as e:
         print(f"❌ BLE 掃描失敗: {e}")
         return None
@@ -357,40 +375,47 @@ def find_ble_device(name=BLE_DEVICE_NAME, timeout=8.0):
 # BLE 通知處理器（全域，只設置一次）
 ble_notification_handler = None
 
-def is_scpi_command(cmd):
+def is_scpi_command(cmd: str) -> bool:
     """檢查命令是否為 SCPI 命令（以 * 開頭）"""
     return cmd.strip().startswith('*')
 
-def ble_handle_notification(sender, data: bytearray):
+def ble_handle_notification(sender: int, data: bytearray) -> None:
     """BLE 通知處理器"""
     with ble_data_lock:
         text = data.decode("utf-8", errors="replace")
         print(f"[DEBUG] BLE 通知: 收到 {len(data)} 字節: {repr(text)}")
         received_ble_data.append(text)
 
-async def setup_ble_notifications_async(client):
+async def setup_ble_notifications_async(client: Optional['BleakClient']) -> bool:
     """設置 BLE 通知（只調用一次）"""
     if not client or not client.is_connected:
         return False
 
     try:
+        from bleak.exc import BleakError
         await client.start_notify(BLE_CHAR_UUID_TX, ble_handle_notification)
         return True
-    except Exception as e:
+    except BleakError as e:
         print(f"❌ 訂閱 BLE 通知失敗: {e}")
         return False
+    except AttributeError as e:
+        print(f"❌ BLE 屬性錯誤: {e}")
+        return False
 
-async def cleanup_ble_notifications_async(client):
+async def cleanup_ble_notifications_async(client: Optional['BleakClient']) -> None:
     """清理 BLE 通知（只調用一次）"""
     if not client or not client.is_connected:
         return
 
     try:
+        from bleak.exc import BleakError
         await client.stop_notify(BLE_CHAR_UUID_TX)
-    except Exception as e:
-        print(f"⚠️  取消 BLE 通知失敗: {e}")
+    except BleakError as e:
+        print(f"⚠️  取消 BLE 通知失敗 (BLE): {e}")
+    except AttributeError as e:
+        print(f"⚠️  取消 BLE 通知失敗 (屬性): {e}")
 
-async def test_ble_command_async(client, cmd, timeout_sec=2.0):
+async def test_ble_command_async(client: Optional['BleakClient'], cmd: str, timeout_sec: float = 2.0) -> Optional[List[str]]:
     """測試 BLE 命令（async 版本）- 假設通知已經設置好"""
     global received_ble_data
 
@@ -409,11 +434,10 @@ async def test_ble_command_async(client, cmd, timeout_sec=2.0):
     print(f"[DEBUG] 命令 '{cmd}': 已發送")
 
     # 等待初始回應
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(COMMAND_RESPONSE_DELAY)
 
     responses = []
     idle_count = 0
-    max_idle = 10
 
     start_time = time.time()
     while (time.time() - start_time) < timeout_sec:
@@ -429,14 +453,14 @@ async def test_ble_command_async(client, cmd, timeout_sec=2.0):
             idle_count = 0
         else:
             idle_count += 1
-            if idle_count >= max_idle and responses:
+            if idle_count >= MAX_IDLE_POLLS and responses:
                 break
 
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(POLL_INTERVAL)
 
     return responses
 
-def test_ble_command(client, cmd, timeout_sec=2.0):
+def test_ble_command(client: Optional['BleakClient'], cmd: str, timeout_sec: float = 2.0) -> Optional[List[str]]:
     """測試 BLE 命令（同步包裝）"""
     if not client:
         return None
@@ -445,13 +469,16 @@ def test_ble_command(client, cmd, timeout_sec=2.0):
         # 使用已存在的 event loop（在 find_ble_device 時設定的）
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(test_ble_command_async(client, cmd, timeout_sec))
+    except RuntimeError as e:
+        print(f"❌ BLE event loop 錯誤: {e}")
+        return None
     except Exception as e:
         print(f"❌ BLE 命令失敗: {e}")
         import traceback
         traceback.print_exc()
         return None
 
-def compare_responses(cdc_resp=None, hid_resp=None, ble_resp=None, cmd=""):
+def compare_responses(cdc_resp: Optional[List[str]] = None, hid_resp: Optional[List[str]] = None, ble_resp: Optional[List[str]] = None, cmd: str = "") -> None:
     """比較 CDC、HID 和 BLE 的回應（考慮新的路由規則）"""
     print(f"\n{'='*60}")
     print(f"命令: {cmd}")
@@ -537,7 +564,7 @@ def compare_responses(cdc_resp=None, hid_resp=None, ble_resp=None, cmd=""):
         elif 'CDC' not in responses_dict or not responses_dict['CDC']:
             print("\n⚠️  一般命令：CDC 無回應（異常）")
 
-def test_cdc_only(ser):
+def test_cdc_only(ser: Optional[serial.Serial]) -> None:
     """僅測試 CDC 介面"""
     print("\n" + "=" * 60)
     print("測試 CDC 介面")
@@ -557,9 +584,9 @@ def test_cdc_only(ser):
         else:
             print("⚠️  無回應")
 
-        time.sleep(0.5)  # 增加命令間隔時間
+        time.sleep(TEST_COMMAND_DELAY)
 
-def test_hid_only(hid_device, out_report):
+def test_hid_only(hid_device: Optional[any], out_report: Optional[any]) -> None:
     """僅測試 HID 介面"""
     print("\n" + "=" * 60)
     print("測試 HID 介面")
@@ -579,9 +606,9 @@ def test_hid_only(hid_device, out_report):
         else:
             print("⚠️  無回應")
 
-        time.sleep(0.5)  # 增加命令間隔時間
+        time.sleep(TEST_COMMAND_DELAY)
 
-def test_ble_only(ble_client):
+def test_ble_only(ble_client: Optional['BleakClient']) -> None:
     """僅測試 BLE 介面"""
     if not ble_client:
         return
@@ -611,13 +638,13 @@ def test_ble_only(ble_client):
             else:
                 print("⚠️  無回應")
 
-            time.sleep(2.0)  # 增加命令間隔時間到 2 秒
+            time.sleep(BLE_COMMAND_DELAY)
 
     finally:
         # 清理 BLE 通知（只取消一次）
         loop.run_until_complete(cleanup_ble_notifications_async(ble_client))
 
-def test_all_interfaces(ser=None, hid_device=None, out_report=None, ble_client=None):
+def test_all_interfaces(ser: Optional[serial.Serial] = None, hid_device: Optional[any] = None, out_report: Optional[any] = None, ble_client: Optional['BleakClient'] = None) -> None:
     """測試所有可用介面的多通道回應"""
     print("\n" + "=" * 60)
     print("測試多通道回應功能（v2.2 路由規則）")
@@ -659,19 +686,19 @@ def test_all_interfaces(ser=None, hid_device=None, out_report=None, ble_client=N
             # 發送到各個介面
             if ser:
                 cdc_resp = test_cdc_command(ser, cmd)
-                time.sleep(0.3)
+                time.sleep(MULTI_INTERFACE_DELAY)
 
             if hid_device and out_report:
                 hid_resp = test_hid_command(hid_device, out_report, cmd)
-                time.sleep(0.3)
+                time.sleep(MULTI_INTERFACE_DELAY)
 
             if ble_client:
                 ble_resp = test_ble_command(ble_client, cmd)
-                time.sleep(0.3)
+                time.sleep(MULTI_INTERFACE_DELAY)
 
             # 比較回應
             compare_responses(cdc_resp, hid_resp, ble_resp, cmd)
-            time.sleep(0.5)
+            time.sleep(TEST_COMMAND_DELAY)
 
     finally:
         # 如果設置了 BLE 通知，清理它（只取消一次）
@@ -679,7 +706,7 @@ def test_all_interfaces(ser=None, hid_device=None, out_report=None, ble_client=N
             loop = asyncio.get_event_loop()
             loop.run_until_complete(cleanup_ble_notifications_async(ble_client))
 
-def main():
+def main() -> None:
     print("=" * 60)
     print("ESP32-S3 整合測試工具")
     print("測試 CDC、HID 和 BLE 介面")
@@ -788,11 +815,16 @@ def main():
         if ble_client:
             # 需要異步關閉
             try:
+                from bleak.exc import BleakError
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(ble_client.disconnect())
                 print("BLE 介面已關閉")
-            except:
-                pass
+            except BleakError:
+                pass  # BLE 已斷開
+            except RuntimeError:
+                pass  # Event loop 已關閉
+            except Exception:
+                pass  # 其他錯誤（避免關閉時崩潰）
 
 if __name__ == "__main__":
     main()
