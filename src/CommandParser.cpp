@@ -798,15 +798,24 @@ void CommandParser::handleSetPWMFreqAndDuty(ICommandResponse* response, uint32_t
     }
 
     // Atomically update both parameters
-    Serial.println("═══════════════════════════════════════");
-    Serial.printf("🔵 CommandParser: BEFORE calling setPWMFrequencyAndDuty(%u, %.1f)\n", freq, duty);
-    Serial.flush();
+    response->println("═══════════════════════════════════════");
+    response->printf("🔵 DEBUG: Request - freq=%u Hz, duty=%.1f%%\n", freq, duty);
 
+    // Get current state BEFORE update
+    uint32_t old_freq = uart1.getPWMFrequency();
+    float old_duty = uart1.getPWMDuty();
+    response->printf("🔵 DEBUG: Before - freq=%u Hz, duty=%.1f%%\n", old_freq, old_duty);
+
+    // Call the update function
+    response->println("🔵 DEBUG: Calling setPWMFrequencyAndDuty()...");
     bool result = uart1.setPWMFrequencyAndDuty(freq, duty);
+    response->printf("🔵 DEBUG: Function returned: %s\n", result ? "SUCCESS" : "FAILED");
 
-    Serial.printf("🔵 CommandParser: AFTER setPWMFrequencyAndDuty, result=%d\n", result);
-    Serial.flush();
-    Serial.println("═══════════════════════════════════════");
+    // Get state AFTER update
+    uint32_t new_freq = uart1.getPWMFrequency();
+    float new_duty = uart1.getPWMDuty();
+    response->printf("🔵 DEBUG: After - freq=%u Hz, duty=%.1f%%\n", new_freq, new_duty);
+    response->println("═══════════════════════════════════════");
 
     if (result) {
         response->printf("✅ PWM 原子性更新: %u Hz, %.1f%%\n", freq, duty);
