@@ -258,6 +258,7 @@ def test_hardware_setup() -> None:
 
     wait_for_user("🔌 請連接 TX1 到 RX1，然後按 ENTER 開始測試...")
     print_success("硬體設置確認完成")
+    print_info("接下來將進行測試套件 1：PWM/RPM 模式測試")
 
 def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     """測試套件 1：PWM/RPM 模式測試"""
@@ -306,7 +307,7 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
 
         print(f"  回應：\n{response}")
 
-    wait_for_user()
+    wait_for_user("接下來要測試佔空比變化（固定頻率），按 ENTER 繼續...")
 
     # 測試 1.2：佔空比變化
     print_step("1.2", "佔空比變化測試（固定頻率）")
@@ -324,7 +325,7 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
 
         time.sleep(PWM_STABILIZATION_DELAY)
 
-    wait_for_user()
+    wait_for_user("接下來要測試頻率切換（毛刺檢測），按 ENTER 繼續...")
 
     # 測試 1.3：頻率切換（毛刺檢測）
     print_step("1.3", "頻率切換測試（毛刺檢測）")
@@ -345,7 +346,7 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     else:
         print_warning("頻率切換：觀察到毛刺")
 
-    wait_for_user()
+    wait_for_user("接下來要測試佔空比切換（毛刺檢測），按 ENTER 繼續...")
 
     # 測試 1.4：佔空比切換（毛刺檢測）
     print_step("1.4", "佔空比切換測試（毛刺檢測）")
@@ -366,7 +367,7 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     else:
         print_warning("佔空比切換：觀察到毛刺")
 
-    wait_for_user()
+    wait_for_user("接下來要測試極限頻率（最小 1 Hz 和最大 500 kHz），按 ENTER 繼續...")
 
     # 測試 1.5：極限頻率測試
     print_step("1.5", "極限頻率測試")
@@ -397,7 +398,7 @@ def test_uart_mode(ser: serial.Serial) -> None:
         print_fail(f"無法切換到 UART 模式：{response}")
         return
 
-    wait_for_user()
+    wait_for_user("接下來要測試不同鮑率（2400 ~ 1500000 baud），按 ENTER 繼續...")
 
     # 測試 2.1：不同鮑率
     print_step("2.1", "鮑率測試（Echo Loopback）")
@@ -428,7 +429,7 @@ def test_uart_mode(ser: serial.Serial) -> None:
         else:
             print_warning(f"鮑率 {baud}：狀態不明確")
 
-    wait_for_user()
+    wait_for_user("接下來要測試不同訊息長度，按 ENTER 繼續...")
 
     # 測試 2.2：不同訊息長度
     print_step("2.2", "訊息長度測試")
@@ -449,7 +450,7 @@ def test_uart_mode(ser: serial.Serial) -> None:
         if f"{len(msg)}" in response or "sent" in response.lower():
             print_success(f"長度 {len(msg)}：成功發送")
 
-    wait_for_user()
+    wait_for_user("接下來要測試特殊字元，按 ENTER 繼續...")
 
     # 測試 2.3：特殊字元
     print_step("2.3", "特殊字元測試")
@@ -485,7 +486,7 @@ def test_mode_switching(ser: serial.Serial) -> None:
 
         time.sleep(MODE_SWITCH_DELAY)
 
-    wait_for_user()
+    wait_for_user("接下來要測試 OFF 模式切換，按 ENTER 繼續...")
 
     # 測試 3.2：OFF 模式
     print_step("3.2", "OFF 模式測試")
