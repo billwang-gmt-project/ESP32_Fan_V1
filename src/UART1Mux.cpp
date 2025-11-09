@@ -846,17 +846,24 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
     }
 
     // ===== Update Comparator (duty cycle) =====
+    // Direct register access using base address + offset
+    // MCPWM1 base: 0x6001C000
+    // CMPR_VALUE0_A register: offset 0x0014
+    // CMPR_CFG0 register: offset 0x0040
+
+    volatile uint32_t* cmpr_cfg_reg = (volatile uint32_t*)(0x6001C000 + 0x0040);
+    volatile uint32_t* cmpr_value_reg = (volatile uint32_t*)(0x6001C000 + 0x0014);
+
     // Ensure CMPR_A_UPMETHOD is set to 0x0 (TEZ sync, shadow mode)
-    // This should already be configured during initialization, but verify:
-    uint32_t cmpr_cfg_val = MCPWM1.channel[0].cmpr_cfg.val;
+    uint32_t cmpr_cfg_val = *cmpr_cfg_reg;
 
     // Clear CMPR_A_UPMETHOD bits [9:8] and set to 0x0 (TEZ sync)
     cmpr_cfg_val &= 0xFFFFFCFF;  // Clear bits [9:8]
     cmpr_cfg_val |= (0x0 << 8);   // Set to 0x0 = TEZ sync with shadow register
-    MCPWM1.channel[0].cmpr_cfg.val = cmpr_cfg_val;
+    *cmpr_cfg_reg = cmpr_cfg_val;
 
     // Update comparator value (will take effect at next TEZ)
-    MCPWM1.channel[0].cmpr_value[0].cmpr_val = comparator;
+    *cmpr_value_reg = comparator;
 
     taskEXIT_CRITICAL(&mux);
 
