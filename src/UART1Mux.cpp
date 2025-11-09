@@ -786,20 +786,23 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
     }
 
     // Direct register access to MCPWM1 (UART1 PWM uses MCPWM_UNIT_1)
-    // Timer 0 (MCPWM_TIMER_UART1_PWM = MCPWM_TIMER_0)
+    // Based on ESP32-S3 MCPWM register structure:
+    // - timer[n] controls period (frequency)
+    // - operator[n] controls comparator (duty cycle)
+
     taskENTER_CRITICAL(&mux);
 
     // Update period register (affects frequency)
-    // Writing to timer_cfg0.timer_period updates the shadow register
-    MCPWM1.timer[0].timer_cfg0.timer_period = period;
+    // Writing to timer[0].period updates the shadow register
+    MCPWM1.timer[0].period.period = period;
 
     // Update comparator A register (affects duty)
-    // Writing to cmpr[0].cmpr_val updates the shadow register for comparator A
-    MCPWM1.timer[0].cmpr[0].cmpr_val = cmpr;
+    // Operator 0, Comparator A is used for MCPWM0A output
+    MCPWM1.channel[0].cmpr_value[0].cmpr_val = cmpr;
 
     // Trigger sync to apply shadow registers at next TEZ
-    // Set timer_cfg1.timer_sync_sw = 1 to trigger software sync
-    MCPWM1.timer[0].timer_cfg1.timer_sync_sw = 1;
+    // Use timer sync configuration
+    MCPWM1.timer[0].sync.sync_sw = 1;
 
     taskEXIT_CRITICAL(&mux);
 }
