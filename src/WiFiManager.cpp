@@ -1,8 +1,5 @@
 #include "WiFiManager.h"
-#include "USBCDC.h"
 
-// External reference to USBSerial (defined in main.cpp)
-extern USBCDC USBSerial;
 
 WiFiManager::WiFiManager() {
     // Constructor
@@ -10,20 +7,20 @@ WiFiManager::WiFiManager() {
 
 bool WiFiManager::begin(WiFiSettings* settings) {
     if (!settings) {
-        USBSerial.println("❌ WiFiManager::begin() - NULL settings pointer!");
+        Serial.println("❌ WiFiManager::begin() - NULL settings pointer!");
         return false;
     }
 
     pSettings = settings;
     status = WiFiStatus::DISCONNECTED;
 
-    USBSerial.println("✅ WiFi Manager initialized");
+    Serial.println("✅ WiFi Manager initialized");
     return true;
 }
 
 bool WiFiManager::start() {
     if (!pSettings) {
-        USBSerial.println("❌ WiFi settings not initialized!");
+        Serial.println("❌ WiFi settings not initialized!");
         return false;
     }
 
@@ -35,23 +32,23 @@ bool WiFiManager::start() {
 
     switch (pSettings->mode) {
         case WiFiMode::OFF:
-            USBSerial.println("📡 WiFi mode: OFF");
+            Serial.println("📡 WiFi mode: OFF");
             status = WiFiStatus::DISCONNECTED;
             success = true;
             break;
 
         case WiFiMode::AP:
-            USBSerial.println("📡 WiFi mode: Access Point");
+            Serial.println("📡 WiFi mode: Access Point");
             success = startAP();
             break;
 
         case WiFiMode::STA:
-            USBSerial.println("📡 WiFi mode: Station");
+            Serial.println("📡 WiFi mode: Station");
             success = startStation();
             break;
 
         case WiFiMode::AP_STA:
-            USBSerial.println("📡 WiFi mode: AP + Station");
+            Serial.println("📡 WiFi mode: AP + Station");
             // Start AP first
             if (startAP()) {
                 // Then try to connect as station
@@ -68,7 +65,7 @@ void WiFiManager::stop() {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     status = WiFiStatus::DISCONNECTED;
-    USBSerial.println("📡 WiFi stopped");
+    Serial.println("📡 WiFi stopped");
 }
 
 void WiFiManager::update() {
@@ -87,24 +84,24 @@ void WiFiManager::update() {
             if (WiFi.status() == WL_CONNECTED) {
                 if (status != WiFiStatus::CONNECTED) {
                     status = WiFiStatus::CONNECTED;
-                    USBSerial.println("✅ WiFi connected");
-                    USBSerial.print("  IP Address: ");
-                    USBSerial.println(WiFi.localIP());
-                    USBSerial.print("  RSSI: ");
-                    USBSerial.print(WiFi.RSSI());
-                    USBSerial.println(" dBm");
+                    Serial.println("✅ WiFi connected");
+                    Serial.print("  IP Address: ");
+                    Serial.println(WiFi.localIP());
+                    Serial.print("  RSSI: ");
+                    Serial.print(WiFi.RSSI());
+                    Serial.println(" dBm");
                 }
             } else {
                 // Connection lost - attempt reconnect
                 if (status == WiFiStatus::CONNECTED) {
-                    USBSerial.println("⚠️ WiFi connection lost");
+                    Serial.println("⚠️ WiFi connection lost");
                     status = WiFiStatus::CONNECTING;
                 }
 
                 // Reconnect attempt
                 if (now - lastReconnectAttempt >= RECONNECT_INTERVAL_MS) {
                     lastReconnectAttempt = now;
-                    USBSerial.println("🔄 Attempting WiFi reconnect...");
+                    Serial.println("🔄 Attempting WiFi reconnect...");
                     WiFi.reconnect();
                 }
             }
@@ -187,7 +184,7 @@ bool WiFiManager::startAP() {
         return false;
     }
 
-    USBSerial.printf("🔧 Starting Access Point: %s\n", pSettings->ap_ssid);
+    Serial.printf("🔧 Starting Access Point: %s\n", pSettings->ap_ssid);
 
     // Configure AP mode
     WiFi.mode(WIFI_AP);
@@ -203,17 +200,17 @@ bool WiFiManager::startAP() {
 
     if (success) {
         status = WiFiStatus::AP_STARTED;
-        USBSerial.println("✅ Access Point started");
-        USBSerial.print("  SSID: ");
-        USBSerial.println(pSettings->ap_ssid);
-        USBSerial.print("  IP Address: ");
-        USBSerial.println(WiFi.softAPIP());
-        USBSerial.print("  Channel: ");
-        USBSerial.println(pSettings->ap_channel);
+        Serial.println("✅ Access Point started");
+        Serial.print("  SSID: ");
+        Serial.println(pSettings->ap_ssid);
+        Serial.print("  IP Address: ");
+        Serial.println(WiFi.softAPIP());
+        Serial.print("  Channel: ");
+        Serial.println(pSettings->ap_channel);
         return true;
     } else {
         status = WiFiStatus::ERROR;
-        USBSerial.println("❌ Failed to start Access Point");
+        Serial.println("❌ Failed to start Access Point");
         return false;
     }
 }
@@ -224,11 +221,11 @@ bool WiFiManager::startStation() {
     }
 
     if (strlen(pSettings->sta_ssid) == 0) {
-        USBSerial.println("❌ Station SSID not configured");
+        Serial.println("❌ Station SSID not configured");
         return false;
     }
 
-    USBSerial.printf("🔧 Connecting to WiFi: %s\n", pSettings->sta_ssid);
+    Serial.printf("🔧 Connecting to WiFi: %s\n", pSettings->sta_ssid);
 
     // Set mode to station
     if (pSettings->mode == WiFiMode::AP_STA) {
@@ -240,7 +237,7 @@ bool WiFiManager::startStation() {
     // Configure static IP if not using DHCP
     if (!pSettings->sta_dhcp) {
         if (!configureStaticIP()) {
-            USBSerial.println("⚠️ Failed to configure static IP, using DHCP");
+            Serial.println("⚠️ Failed to configure static IP, using DHCP");
         }
     }
 
@@ -257,30 +254,30 @@ bool WiFiManager::startStation() {
     unsigned long startTime = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - startTime) < CONNECTION_TIMEOUT_MS) {
         delay(100);
-        USBSerial.print(".");
+        Serial.print(".");
     }
-    USBSerial.println();
+    Serial.println();
 
     if (WiFi.status() == WL_CONNECTED) {
         status = WiFiStatus::CONNECTED;
-        USBSerial.println("✅ WiFi connected");
-        USBSerial.print("  IP Address: ");
-        USBSerial.println(WiFi.localIP());
-        USBSerial.print("  Gateway: ");
-        USBSerial.println(WiFi.gatewayIP());
-        USBSerial.print("  RSSI: ");
-        USBSerial.print(WiFi.RSSI());
-        USBSerial.println(" dBm");
+        Serial.println("✅ WiFi connected");
+        Serial.print("  IP Address: ");
+        Serial.println(WiFi.localIP());
+        Serial.print("  Gateway: ");
+        Serial.println(WiFi.gatewayIP());
+        Serial.print("  RSSI: ");
+        Serial.print(WiFi.RSSI());
+        Serial.println(" dBm");
         return true;
     } else {
         status = WiFiStatus::ERROR;
-        USBSerial.println("❌ WiFi connection failed");
+        Serial.println("❌ WiFi connection failed");
         return false;
     }
 }
 
 int WiFiManager::scanNetworks(int maxResults) {
-    USBSerial.println("🔍 Scanning for WiFi networks...");
+    Serial.println("🔍 Scanning for WiFi networks...");
 
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -289,11 +286,11 @@ int WiFiManager::scanNetworks(int maxResults) {
     scanResults = WiFi.scanNetworks();
 
     if (scanResults == 0) {
-        USBSerial.println("⚠️ No networks found");
+        Serial.println("⚠️ No networks found");
     } else if (scanResults > 0) {
-        USBSerial.printf("✅ Found %d networks\n", scanResults);
+        Serial.printf("✅ Found %d networks\n", scanResults);
     } else {
-        USBSerial.println("❌ Network scan failed");
+        Serial.println("❌ Network scan failed");
     }
 
     return scanResults;
@@ -315,29 +312,29 @@ bool WiFiManager::configureStaticIP() {
     IPAddress ip, gateway, subnet;
 
     if (!ip.fromString(pSettings->sta_ip)) {
-        USBSerial.printf("❌ Invalid IP address: %s\n", pSettings->sta_ip);
+        Serial.printf("❌ Invalid IP address: %s\n", pSettings->sta_ip);
         return false;
     }
 
     if (!gateway.fromString(pSettings->sta_gateway)) {
-        USBSerial.printf("❌ Invalid gateway: %s\n", pSettings->sta_gateway);
+        Serial.printf("❌ Invalid gateway: %s\n", pSettings->sta_gateway);
         return false;
     }
 
     if (!subnet.fromString(pSettings->sta_subnet)) {
-        USBSerial.printf("❌ Invalid subnet: %s\n", pSettings->sta_subnet);
+        Serial.printf("❌ Invalid subnet: %s\n", pSettings->sta_subnet);
         return false;
     }
 
     if (!WiFi.config(ip, gateway, subnet)) {
-        USBSerial.println("❌ Failed to configure static IP");
+        Serial.println("❌ Failed to configure static IP");
         return false;
     }
 
-    USBSerial.println("✅ Static IP configured");
-    USBSerial.printf("  IP: %s\n", pSettings->sta_ip);
-    USBSerial.printf("  Gateway: %s\n", pSettings->sta_gateway);
-    USBSerial.printf("  Subnet: %s\n", pSettings->sta_subnet);
+    Serial.println("✅ Static IP configured");
+    Serial.printf("  IP: %s\n", pSettings->sta_ip);
+    Serial.printf("  Gateway: %s\n", pSettings->sta_gateway);
+    Serial.printf("  Subnet: %s\n", pSettings->sta_subnet);
 
     return true;
 }

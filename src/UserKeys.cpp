@@ -1,8 +1,5 @@
 #include "UserKeys.h"
-#include "USBCDC.h"
 
-// External reference to USBSerial (defined in main.cpp)
-extern USBCDC USBSerial;
 
 #include "driver/gpio.h"
 
@@ -42,7 +39,7 @@ bool UserKeys::begin(uint32_t debounceMs, uint32_t longPressMs, uint32_t repeatI
     }
 
     initialized = true;
-    USBSerial.println("[UserKeys] Initialized: 3 keys with debouncing and long-press detection");
+    Serial.println("[UserKeys] Initialized: 3 keys with debouncing and long-press detection");
 
     return true;
 }

@@ -5,10 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <Preferences.h>
-#include "USBCDC.h"
 
-// External reference to USBSerial (defined in main.cpp)
-extern USBCDC USBSerial;
 
 // NVS namespace for UART1 settings persistence
 static const char* NVS_NAMESPACE = "uart1_settings";
@@ -54,12 +51,12 @@ bool UART1Mux::setModeUART(uint32_t baudRate, uart_stop_bits_t stopBits,
 
     // Initialize UART
     if (!initUART()) {
-        USBSerial.println("[UART1] Failed to initialize UART mode");
+        Serial.println("[UART1] Failed to initialize UART mode");
         return false;
     }
 
     currentMode = MODE_UART;
-    USBSerial.printf("[UART1] Switched to UART mode: %u baud\n", baudRate);
+    Serial.printf("[UART1] Switched to UART mode: %u baud\n", baudRate);
 
     // Settling time
     delay(10);
@@ -81,13 +78,13 @@ bool UART1Mux::setModePWM_RPM() {
     bool rpmOK = initRPM();
 
     if (!pwmOK || !rpmOK) {
-        USBSerial.println("[UART1] Failed to initialize PWM/RPM mode");
+        Serial.println("[UART1] Failed to initialize PWM/RPM mode");
         disable();
         return false;
     }
 
     currentMode = MODE_PWM_RPM;
-    USBSerial.println("[UART1] Switched to PWM/RPM mode");
+    Serial.println("[UART1] Switched to PWM/RPM mode");
 
     // Settling time
     delay(10);
@@ -210,7 +207,7 @@ bool UART1Mux::reconfigureUART(uint32_t baudRate, uart_stop_bits_t stopBits,
 
     esp_err_t err = uart_param_config(uartNum, &uart_config);
     if (err != ESP_OK) {
-        USBSerial.printf("[UART1] Reconfigure failed: %d\n", err);
+        Serial.printf("[UART1] Reconfigure failed: %d\n", err);
         return false;
     }
 
@@ -219,7 +216,7 @@ bool UART1Mux::reconfigureUART(uint32_t baudRate, uart_stop_bits_t stopBits,
     uartParity = parity;
     uartDataBits = dataBits;
 
-    USBSerial.printf("[UART1] Reconfigured: %u baud\n", baudRate);
+    Serial.printf("[UART1] Reconfigured: %u baud\n", baudRate);
     return true;
 }
 
@@ -247,12 +244,12 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
     // Check if prescaler needs to change
     if (new_prescaler != pwmPrescaler) {
         // Prescaler change required - must use high-level API (will stop PWM briefly)
-        USBSerial.printf("[UART1] ⚠️ Prescaler change required (%u → %u), brief PWM stop unavoidable\n",
+        Serial.printf("[UART1] ⚠️ Prescaler change required (%u → %u), brief PWM stop unavoidable\n",
                      pwmPrescaler, new_prescaler);
 
         esp_err_t err = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
         if (err != ESP_OK) {
-            USBSerial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err));
+            Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err));
             return false;
         }
 
@@ -261,7 +258,7 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
         pwmPeriod = new_period;
         pwmFrequency = frequency;
 
-        USBSerial.printf("[UART1] PWM frequency updated: %u Hz (prescaler=%u, period=%u)\n",
+        Serial.printf("[UART1] PWM frequency updated: %u Hz (prescaler=%u, period=%u)\n",
                      frequency, pwmPrescaler, pwmPeriod);
     } else {
         // Same prescaler - update period only using LL API (no PWM stop!)
@@ -271,7 +268,7 @@ bool UART1Mux::setPWMFrequency(uint32_t frequency) {
         pwmPeriod = new_period;
         pwmFrequency = frequency;
 
-        USBSerial.printf("[UART1] PWM frequency updated (no-stop): %u Hz (period=%u)\n",
+        Serial.printf("[UART1] PWM frequency updated (no-stop): %u Hz (period=%u)\n",
                      frequency, pwmPeriod);
     }
 
@@ -296,31 +293,31 @@ bool UART1Mux::setPWMDuty(float duty) {
 
     pwmDuty = duty;
 
-    USBSerial.printf("[UART1] PWM duty updated (no-stop, LL API): %.1f%%\n", duty);
+    Serial.printf("[UART1] PWM duty updated (no-stop, LL API): %.1f%%\n", duty);
 
     return true;
 }
 
 bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     // ==== ENTRY DEBUG ====
-    USBSerial.printf("[UART1] 🚀 setPWMFrequencyAndDuty() ENTRY: freq=%u Hz, duty=%.1f%%\n", frequency, duty);
-    USBSerial.printf("[UART1] 📊 Current: prescaler=%u, period=%u, freq=%u, duty=%.1f\n",
+    Serial.printf("[UART1] 🚀 setPWMFrequencyAndDuty() ENTRY: freq=%u Hz, duty=%.1f%%\n", frequency, duty);
+    Serial.printf("[UART1] 📊 Current: prescaler=%u, period=%u, freq=%u, duty=%.1f\n",
                      pwmPrescaler, pwmPeriod, pwmFrequency, pwmDuty);
-    USBSerial.flush();
+    Serial.flush();
 
     if (currentMode != MODE_PWM_RPM) {
-        USBSerial.println("[UART1] ❌ ABORT: Not in PWM_RPM mode");
+        Serial.println("[UART1] ❌ ABORT: Not in PWM_RPM mode");
         return false;
     }
 
     // Validate parameters
     if (!validatePWMFrequency(frequency)) {
-        USBSerial.println("[UART1] ❌ ABORT: Frequency validation failed");
+        Serial.println("[UART1] ❌ ABORT: Frequency validation failed");
         return false;
     }
 
     if (duty < 0.0 || duty > 100.0) {
-        USBSerial.println("[UART1] ❌ ABORT: Duty validation failed");
+        Serial.println("[UART1] ❌ ABORT: Duty validation failed");
         return false;
     }
 
@@ -337,47 +334,47 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     // Try using current prescaler
     uint32_t new_period_with_current_prescaler = target_ticks / pwmPrescaler;
 
-    USBSerial.printf("[UART1] 🧮 Clock=%u Hz, Target freq=%u Hz, current prescaler=%u\n",
+    Serial.printf("[UART1] 🧮 Clock=%u Hz, Target freq=%u Hz, current prescaler=%u\n",
                  mcpwmClockFreq, frequency, pwmPrescaler);
-    USBSerial.printf("[UART1] 🧮 New period with current prescaler: %u ticks\n", new_period_with_current_prescaler);
-    USBSerial.flush();
+    Serial.printf("[UART1] 🧮 New period with current prescaler: %u ticks\n", new_period_with_current_prescaler);
+    Serial.flush();
 
     // Check if new period is valid (2 to 65535)
     if (new_period_with_current_prescaler >= 2 && new_period_with_current_prescaler <= 65535) {
         // Can achieve target frequency with current prescaler!
         // Use shadow register mode (glitch-free!)
-        USBSerial.printf("[UART1] ✅ GLITCH-FREE PATH: Keep prescaler=%u, period: %u → %u\n",
+        Serial.printf("[UART1] ✅ GLITCH-FREE PATH: Keep prescaler=%u, period: %u → %u\n",
                      pwmPrescaler, pwmPeriod, new_period_with_current_prescaler);
-        USBSerial.flush();
+        Serial.flush();
 
-        USBSerial.println("[UART1] 🔧 Calling updatePWMRegistersDirectly()...");
+        Serial.println("[UART1] 🔧 Calling updatePWMRegistersDirectly()...");
         updatePWMRegistersDirectly(new_period_with_current_prescaler, duty);
-        USBSerial.println("[UART1] ✅ updatePWMRegistersDirectly() returned");
+        Serial.println("[UART1] ✅ updatePWMRegistersDirectly() returned");
 
         // Update stored values
         pwmPeriod = new_period_with_current_prescaler;
         pwmFrequency = frequency;
         pwmDuty = duty;
 
-        USBSerial.printf("[UART1] ✅ PWM updated (glitch-free): %u Hz, %.1f%%\n", frequency, duty);
-        USBSerial.flush();
+        Serial.printf("[UART1] ✅ PWM updated (glitch-free): %u Hz, %.1f%%\n", frequency, duty);
+        Serial.flush();
     } else {
         // Cannot achieve target frequency with current prescaler
         // Must change prescaler - use mcpwm_set_frequency() (may glitch)
-        USBSerial.printf("[UART1] ⚠️ PRESCALER CHANGE REQUIRED: period %u out of range [2, 65535]\n",
+        Serial.printf("[UART1] ⚠️ PRESCALER CHANGE REQUIRED: period %u out of range [2, 65535]\n",
                      new_period_with_current_prescaler);
-        USBSerial.flush();
+        Serial.flush();
 
         esp_err_t err_freq = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
         if (err_freq != ESP_OK) {
-            USBSerial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err_freq));
+            Serial.printf("[UART1] PWM frequency set failed: %s\n", esp_err_to_name(err_freq));
             return false;
         }
 
         esp_err_t err_duty = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
                                             MCPWM_GEN_UART1_PWM, duty);
         if (err_duty != ESP_OK) {
-            USBSerial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err_duty));
+            Serial.printf("[UART1] PWM duty set failed: %s\n", esp_err_to_name(err_duty));
             return false;
         }
 
@@ -387,7 +384,7 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
         uint32_t actual_prescaler = (cfg0_actual & 0xFF);
         uint32_t actual_period = ((cfg0_actual >> 8) & 0xFFFF);
 
-        USBSerial.printf("[UART1] 📖 Register after mcpwm_set_frequency(): prescaler=%u, period=%u\n",
+        Serial.printf("[UART1] 📖 Register after mcpwm_set_frequency(): prescaler=%u, period=%u\n",
                      actual_prescaler, actual_period);
 
         // Update stored values with ACTUAL register values (not calculated values!)
@@ -396,12 +393,12 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
         pwmFrequency = frequency;
         pwmDuty = duty;
 
-        USBSerial.printf("[UART1] PWM updated: %u Hz, %.1f%% (prescaler=%u, period=%u)\n",
+        Serial.printf("[UART1] PWM updated: %u Hz, %.1f%% (prescaler=%u, period=%u)\n",
                      frequency, duty, pwmPrescaler, pwmPeriod);
     }
 
-    USBSerial.println("[UART1] 🏁 setPWMFrequencyAndDuty() RETURN TRUE");
-    USBSerial.flush();
+    Serial.println("[UART1] 🏁 setPWMFrequencyAndDuty() RETURN TRUE");
+    Serial.flush();
     return true;
 }
 
@@ -560,7 +557,7 @@ bool UART1Mux::initPWM() {
     // Step 4: Initialize MCPWM
     esp_err_t err = mcpwm_init(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, &pwm_config);
     if (err != ESP_OK) {
-        USBSerial.printf("[UART1] ❌ MCPWM PWM init failed: %s\n", esp_err_to_name(err));
+        Serial.printf("[UART1] ❌ MCPWM PWM init failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
@@ -580,15 +577,15 @@ bool UART1Mux::initPWM() {
     mcpwmClockFreq = pwmFrequency * pwmPrescaler * pwmPeriod;
 
     pwmEnabled = true;
-    USBSerial.printf("[UART1] ✅ MCPWM PWM initialized (GPIO %d, %u Hz, %.1f%% duty)\n",
+    Serial.printf("[UART1] ✅ MCPWM PWM initialized (GPIO %d, %u Hz, %.1f%% duty)\n",
                  PIN_UART1_TX, pwmFrequency, pwmDuty);
-    USBSerial.printf("[UART1] 📖 Actual register: prescaler=%u, period=%u\n", pwmPrescaler, pwmPeriod);
-    USBSerial.printf("[UART1] 🔍 Detected MCPWM clock: %u Hz (%.1f MHz)\n",
+    Serial.printf("[UART1] 📖 Actual register: prescaler=%u, period=%u\n", pwmPrescaler, pwmPeriod);
+    Serial.printf("[UART1] 🔍 Detected MCPWM clock: %u Hz (%.1f MHz)\n",
                  mcpwmClockFreq, mcpwmClockFreq / 1000000.0f);
 
     if (mcpwmClockFreq < 10000000) {
-        USBSerial.printf("[UART1] ⚠️  WARNING: Clock frequency seems too low! Expected ~80MHz\n");
-        USBSerial.printf("[UART1] ⚠️  This will cause frequency errors in PWM output!\n");
+        Serial.printf("[UART1] ⚠️  WARNING: Clock frequency seems too low! Expected ~80MHz\n");
+        Serial.printf("[UART1] ⚠️  This will cause frequency errors in PWM output!\n");
     }
     return true;
 }
@@ -604,7 +601,7 @@ bool UART1Mux::initRPM() {
                                              PIN_UART1_RX);          // GPIO 18
 
     if (gpio_result != ESP_OK) {
-        USBSerial.printf("[UART1] ❌ MCPWM GPIO init failed: %s\n", esp_err_to_name(gpio_result));
+        Serial.printf("[UART1] ❌ MCPWM GPIO init failed: %s\n", esp_err_to_name(gpio_result));
         return false;
     }
 
@@ -631,15 +628,15 @@ bool UART1Mux::initRPM() {
         lastRPMUpdate = millis();
         rpmFrequency = 0.0;
 
-        USBSerial.printf("[UART1] ✅ MCPWM Capture initialized:\n");
-        USBSerial.printf("  - Unit: MCPWM_UNIT_%d\n", MCPWM_UNIT_UART1_RPM);
-        USBSerial.printf("  - Channel: CAP%d\n", (MCPWM_CAP_UART1_RPM == MCPWM_SELECT_CAP1) ? 1 : 0);
-        USBSerial.printf("  - GPIO: %d (RX1)\n", PIN_UART1_RX);
-        USBSerial.printf("  - Edge: Rising, Clock: 80 MHz\n");
+        Serial.printf("[UART1] ✅ MCPWM Capture initialized:\n");
+        Serial.printf("  - Unit: MCPWM_UNIT_%d\n", MCPWM_UNIT_UART1_RPM);
+        Serial.printf("  - Channel: CAP%d\n", (MCPWM_CAP_UART1_RPM == MCPWM_SELECT_CAP1) ? 1 : 0);
+        Serial.printf("  - GPIO: %d (RX1)\n", PIN_UART1_RX);
+        Serial.printf("  - Edge: Rising, Clock: 80 MHz\n");
         return true;
     }
 
-    USBSerial.printf("[UART1] ❌ MCPWM Capture enable failed: %s\n", esp_err_to_name(result));
+    Serial.printf("[UART1] ❌ MCPWM Capture enable failed: %s\n", esp_err_to_name(result));
     return false;
 }
 
@@ -672,7 +669,7 @@ void UART1Mux::releasePins() {
 bool UART1Mux::validateUARTConfig(uint32_t baudRate, uart_stop_bits_t stopBits,
                                   uart_parity_t parity, uart_word_length_t dataBits) {
     if (baudRate < 2400 || baudRate > 1500000) {
-        USBSerial.printf("[UART1] Invalid baud rate: %u\n", baudRate);
+        Serial.printf("[UART1] Invalid baud rate: %u\n", baudRate);
         return false;
     }
 
@@ -693,7 +690,7 @@ bool UART1Mux::validateUARTConfig(uint32_t baudRate, uart_stop_bits_t stopBits,
 
 bool UART1Mux::validatePWMFrequency(uint32_t frequency) {
     if (frequency < 1 || frequency > 500000) {
-        USBSerial.printf("[UART1] Invalid PWM frequency: %u (valid: 1-500000 Hz)\n", frequency);
+        Serial.printf("[UART1] Invalid PWM frequency: %u (valid: 1-500000 Hz)\n", frequency);
         return false;
     }
     return true;
@@ -705,7 +702,7 @@ bool UART1Mux::validatePWMFrequency(uint32_t frequency) {
 
 bool UART1Mux::setPolePairs(uint32_t poles) {
     if (poles < 1 || poles > 12) {
-        USBSerial.printf("[UART1] Invalid pole pairs: %u (valid: 1-12)\n", poles);
+        Serial.printf("[UART1] Invalid pole pairs: %u (valid: 1-12)\n", poles);
         return false;
     }
     polePairs = poles;
@@ -714,7 +711,7 @@ bool UART1Mux::setPolePairs(uint32_t poles) {
 
 bool UART1Mux::setMaxFrequency(uint32_t freq) {
     if (freq < 10 || freq > 500000) {
-        USBSerial.printf("[UART1] Invalid max frequency: %u (valid: 10-500000 Hz)\n", freq);
+        Serial.printf("[UART1] Invalid max frequency: %u (valid: 10-500000 Hz)\n", freq);
         return false;
     }
     maxFrequency = freq;
@@ -736,7 +733,7 @@ float UART1Mux::getCalculatedRPM() const {
 bool UART1Mux::saveSettings() {
     Preferences prefs;
     if (!prefs.begin(NVS_NAMESPACE, false)) {
-        USBSerial.println("[UART1] Failed to open NVS for saving");
+        Serial.println("[UART1] Failed to open NVS for saving");
         return false;
     }
 
@@ -747,14 +744,14 @@ bool UART1Mux::saveSettings() {
     prefs.putUInt("uartBaud", uartBaudRate);
 
     prefs.end();
-    USBSerial.println("[UART1] Settings saved to NVS");
+    Serial.println("[UART1] Settings saved to NVS");
     return true;
 }
 
 bool UART1Mux::loadSettings() {
     Preferences prefs;
     if (!prefs.begin(NVS_NAMESPACE, true)) {  // Read-only
-        USBSerial.println("[UART1] No saved settings found, using defaults");
+        Serial.println("[UART1] No saved settings found, using defaults");
         return false;
     }
 
@@ -765,7 +762,7 @@ bool UART1Mux::loadSettings() {
     uartBaudRate = prefs.getUInt("uartBaud", 115200);
 
     prefs.end();
-    USBSerial.println("[UART1] Settings loaded from NVS");
+    Serial.println("[UART1] Settings loaded from NVS");
     return true;
 }
 
@@ -776,7 +773,7 @@ void UART1Mux::resetToDefaults() {
     maxFrequency = 100000;
     uartBaudRate = 115200;
 
-    USBSerial.println("[UART1] Settings reset to factory defaults");
+    Serial.println("[UART1] Settings reset to factory defaults");
 }
 
 // ============================================================================
@@ -796,7 +793,7 @@ void UART1Mux::initPWMChangePulse() {
     // Set initial state to LOW
     gpio_set_level((gpio_num_t)PIN_PWM_CHANGE_PULSE, 0);
 
-    USBSerial.printf("[UART1] PWM change pulse initialized on GPIO %d\n", PIN_PWM_CHANGE_PULSE);
+    Serial.printf("[UART1] PWM change pulse initialized on GPIO %d\n", PIN_PWM_CHANGE_PULSE);
 }
 
 void UART1Mux::outputPWMChangePulse() {
@@ -873,7 +870,7 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
 
         // Read register BEFORE write for debugging
         uint32_t cfg0_before = MCPWM1.timer[0].timer_cfg0.val;
-        USBSerial.printf("[UART1] 📖 BEFORE: cfg0=0x%08X, prescaler=%u, period=%u\n",
+        Serial.printf("[UART1] 📖 BEFORE: cfg0=0x%08X, prescaler=%u, period=%u\n",
                      cfg0_before, (cfg0_before & 0xFF), ((cfg0_before >> 8) & 0xFFFF));
 
         // Build the complete register value with prescaler + period + shadow mode
@@ -881,7 +878,7 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
                           | (period << 8)               // Period [23:8]
                           | (1 << 24);                  // Shadow mode [24]
 
-        USBSerial.printf("[UART1] 🔧 Writing: prescaler=%u, period=%u, cfg0_val=0x%08X\n",
+        Serial.printf("[UART1] 🔧 Writing: prescaler=%u, period=%u, cfg0_val=0x%08X\n",
                      pwmPrescaler, period, cfg0_val);
 
         // Write complete value to register
@@ -889,12 +886,12 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
 
         // Read register AFTER write to verify
         uint32_t cfg0_after = MCPWM1.timer[0].timer_cfg0.val;
-        USBSerial.printf("[UART1] 📖 AFTER:  cfg0=0x%08X, prescaler=%u, period=%u\n",
+        Serial.printf("[UART1] 📖 AFTER:  cfg0=0x%08X, prescaler=%u, period=%u\n",
                      cfg0_after, (cfg0_after & 0xFF), ((cfg0_after >> 8) & 0xFFFF));
 
         // Verify calculation
         uint32_t calculated_freq = 80000000 / (pwmPrescaler * period);
-        USBSerial.printf("[UART1] 🧮 Expected frequency: 80MHz / (%u × %u) = %u Hz\n",
+        Serial.printf("[UART1] 🧮 Expected frequency: 80MHz / (%u × %u) = %u Hz\n",
                      pwmPrescaler, period, calculated_freq);
 
         // Update stored period value

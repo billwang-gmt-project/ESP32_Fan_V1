@@ -1,8 +1,5 @@
 #include "WiFiSettings.h"
-#include "USBCDC.h"
 
-// External reference to USBSerial (defined in main.cpp)
-extern USBCDC USBSerial;
 
 // Define WiFiDefaults constants
 namespace WiFiDefaults {
@@ -32,7 +29,7 @@ WiFiSettingsManager::WiFiSettingsManager() {
 bool WiFiSettingsManager::begin() {
     // Try to load settings from NVS
     if (!load()) {
-        USBSerial.println("⚠️ WiFi settings not found in NVS, using defaults");
+        Serial.println("⚠️ WiFi settings not found in NVS, using defaults");
         // Save defaults to NVS
         return save();
     }
@@ -41,7 +38,7 @@ bool WiFiSettingsManager::begin() {
 
 bool WiFiSettingsManager::load() {
     if (!prefs.begin(NVS_NAMESPACE, true)) {  // true = read-only
-        USBSerial.println("❌ Failed to open WiFi settings namespace");
+        Serial.println("❌ Failed to open WiFi settings namespace");
         return false;
     }
 
@@ -75,13 +72,13 @@ bool WiFiSettingsManager::load() {
 
     prefs.end();
 
-    USBSerial.println("✅ WiFi settings loaded from NVS");
+    Serial.println("✅ WiFi settings loaded from NVS");
     return true;
 }
 
 bool WiFiSettingsManager::save() {
     if (!prefs.begin(NVS_NAMESPACE, false)) {  // false = read-write
-        USBSerial.println("❌ Failed to open WiFi settings namespace for writing");
+        Serial.println("❌ Failed to open WiFi settings namespace for writing");
         return false;
     }
 
@@ -109,7 +106,7 @@ bool WiFiSettingsManager::save() {
 
     prefs.end();
 
-    USBSerial.println("✅ WiFi settings saved to NVS");
+    Serial.println("✅ WiFi settings saved to NVS");
     return true;
 }
 
@@ -144,7 +141,7 @@ void WiFiSettingsManager::reset() {
     strncpy(settings.web_password, WiFiDefaults::WEB_PASSWORD, sizeof(settings.web_password) - 1);
     settings.web_password[sizeof(settings.web_password) - 1] = '\0';
 
-    USBSerial.println("✅ WiFi settings reset to defaults");
+    Serial.println("✅ WiFi settings reset to defaults");
 }
 
 const WiFiSettings& WiFiSettingsManager::get() const {

@@ -1,8 +1,5 @@
 #include "GPIOControl.h"
-#include "USBCDC.h"
 
-// External reference to USBSerial (defined in main.cpp)
-extern USBCDC USBSerial;
 
 
 GPIOControl::GPIOControl() {
@@ -28,7 +25,7 @@ bool GPIOControl::begin(bool initialState) {
 
     initialized = true;
 
-    USBSerial.printf("[GPIO] Initialized: Initial state = %s\n", currentState ? "HIGH" : "LOW");
+    Serial.printf("[GPIO] Initialized: Initial state = %s\n", currentState ? "HIGH" : "LOW");
 
     return true;
 }

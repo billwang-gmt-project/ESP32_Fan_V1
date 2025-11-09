@@ -1,8 +1,5 @@
 #include "PeripheralSettings.h"
-#include "USBCDC.h"
 
-// External reference to USBSerial (defined in main.cpp)
-extern USBCDC USBSerial;
 
 
 // NVS namespace
@@ -35,12 +32,12 @@ bool PeripheralSettingsManager::begin() {
 
     // Open NVS in read-write mode
     if (!preferences.begin(NVS_NAMESPACE, false)) {
-        USBSerial.println("[PeripheralSettings] Failed to open NVS");
+        Serial.println("[PeripheralSettings] Failed to open NVS");
         return false;
     }
 
     initialized = true;
-    USBSerial.println("[PeripheralSettings] Initialized");
+    Serial.println("[PeripheralSettings] Initialized");
     return true;
 }
 
@@ -81,7 +78,7 @@ bool PeripheralSettingsManager::load() {
     settings.keyFreqStep = preferences.getUInt(KEY_KEY_FREQ_STEP, PeripheralDefaults::KEY_FREQ_STEP);
     settings.keyControlEnabled = preferences.getBool(KEY_KEY_CTRL_EN, PeripheralDefaults::KEY_CONTROL_ENABLED);
 
-    USBSerial.println("[PeripheralSettings] Settings loaded from NVS");
+    Serial.println("[PeripheralSettings] Settings loaded from NVS");
     return true;
 }
 
@@ -122,7 +119,7 @@ bool PeripheralSettingsManager::save() {
     preferences.putUInt(KEY_KEY_FREQ_STEP, settings.keyFreqStep);
     preferences.putBool(KEY_KEY_CTRL_EN, settings.keyControlEnabled);
 
-    USBSerial.println("[PeripheralSettings] Settings saved to NVS");
+    Serial.println("[PeripheralSettings] Settings saved to NVS");
     return true;
 }
 
@@ -155,7 +152,7 @@ void PeripheralSettingsManager::reset() {
     settings.keyFreqStep = PeripheralDefaults::KEY_FREQ_STEP;
     settings.keyControlEnabled = PeripheralDefaults::KEY_CONTROL_ENABLED;
 
-    USBSerial.println("[PeripheralSettings] Settings reset to defaults");
+    Serial.println("[PeripheralSettings] Settings reset to defaults");
 }
 
 PeripheralSettings& PeripheralSettingsManager::get() {

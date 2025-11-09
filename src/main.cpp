@@ -22,8 +22,9 @@
 #include <BLE2902.h>
 #include <SPIFFS.h>
 
-// USB CDC 實例（用於 console）
-USBCDC USBSerial;
+// USB CDC 實例（由 Arduino 框架自動創建，名為 Serial）
+// 注意：當 ARDUINO_USB_CDC_ON_BOOT=1 時，Arduino 框架會自動創建 Serial 對象
+// 我們直接使用它，不需要手動創建 USBCDC 實例
 
 // 自訂 HID 實例（64 位元組，無 Report ID）
 CustomHID64 HID;
@@ -58,7 +59,7 @@ typedef struct {
 // FreeRTOS 資源
 QueueHandle_t hidDataQueue = nullptr;      // HID 資料佇列
 QueueHandle_t bleCommandQueue = nullptr;   // BLE 命令佇列
-SemaphoreHandle_t serialMutex = nullptr;   // 保護 USBSerial 存取
+SemaphoreHandle_t serialMutex = nullptr;   // 保護 Serial 存取
 SemaphoreHandle_t bufferMutex = nullptr;   // 保護 hid_out_buffer 存取
 SemaphoreHandle_t hidSendMutex = nullptr;  // 保護 HID.send() 存取
 
@@ -96,7 +97,7 @@ PeripheralManager peripheralManager;
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
         bleDeviceConnected = true;
-        USBSerial.println("[BLE] 客戶端已連接");
+        Serial.println("[BLE] 客戶端已連接");
         // Flush any queued notifications
         if (bleNotifyQueue) {
             char* msg = nullptr;
@@ -115,11 +116,11 @@ class MyServerCallbacks: public BLEServerCallbacks {
 
     void onDisconnect(BLEServer* pServer) {
         bleDeviceConnected = false;
-        USBSerial.println("[BLE] 客戶端已斷開");
+        Serial.println("[BLE] 客戶端已斷開");
         // 重新開始廣播，允許其他客戶端連接
         delay(500);  // 短暫延遲確保斷開完成
         pServer->startAdvertising();
-        USBSerial.println("[BLE] 重新開始廣播");
+        Serial.println("[BLE] 重新開始廣播");
     }
 };
 
@@ -141,7 +142,7 @@ class MyRxCallbacks: public BLECharacteristicCallbacks {
                 if (result != pdTRUE) {
                     // 佇列已滿，丟棄命令
                     if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(10))) {
-                        USBSerial.println("[BLE] 命令佇列已滿，命令被丟棄");
+                        Serial.println("[BLE] 命令佇列已滿，命令被丟棄");
                         xSemaphoreGive(serialMutex);
                     }
                 }
@@ -187,7 +188,7 @@ void hidTask(void* parameter) {
                 // ========== 這是命令封包 ==========
                 if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
                     const char* protocol_name = is_0xA1_protocol ? "0xA1" : "純文本";
-                    USBSerial.printf("\n[HID CMD %s] %s\n", protocol_name, command_buffer);
+                    Serial.printf("\n[HID CMD %s] %s\n", protocol_name, command_buffer);
                     xSemaphoreGive(serialMutex);
                 }
 
@@ -204,8 +205,8 @@ void hidTask(void* parameter) {
 
                 // 顯示提示符
                 if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
-                    if (USBSerial) {
-                        USBSerial.print("> ");
+                    if (Serial) {
+                        Serial.print("> ");
                     }
                     xSemaphoreGive(serialMutex);
                 }
@@ -219,27 +220,27 @@ void hidTask(void* parameter) {
                     xSemaphoreGive(bufferMutex);
                 }
 
-                // 顯示除錯資訊（加鎖保護 USBSerial）
+                // 顯示除錯資訊（加鎖保護 Serial）
                 if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
-                    USBSerial.printf("\n[DEBUG] HID OUT (原始資料): %d 位元組\n", packet.len);
+                    Serial.printf("\n[DEBUG] HID OUT (原始資料): %d 位元組\n", packet.len);
 
                     // 顯示前 16 bytes
-                    USBSerial.print("前16: ");
+                    Serial.print("前16: ");
                     for (uint16_t i = 0; i < packet.len && i < 16; i++) {
-                        USBSerial.printf("%02X ", packet.data[i]);
+                        Serial.printf("%02X ", packet.data[i]);
                     }
-                    USBSerial.println();
+                    Serial.println();
 
                     // 顯示最後 16 bytes
                     if (packet.len > 16) {
                         uint16_t start = packet.len - 16;
-                        USBSerial.print("後16: ");
+                        Serial.print("後16: ");
                         for (uint16_t i = start; i < packet.len; i++) {
-                            USBSerial.printf("%02X ", packet.data[i]);
+                            Serial.printf("%02X ", packet.data[i]);
                         }
-                        USBSerial.println();
+                        Serial.println();
                     }
-                    USBSerial.print("> ");
+                    Serial.print("> ");
 
                     xSemaphoreGive(serialMutex);
                 }
@@ -256,7 +257,7 @@ void cdcTask(void* parameter) {
         // 檢查是否有可用資料（使用 mutex 保護）
         int available = 0;
         if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
-            available = USBSerial.available();
+            available = Serial.available();
             xSemaphoreGive(serialMutex);
         }
 
@@ -266,9 +267,9 @@ void cdcTask(void* parameter) {
 
             // 讀取單個字元（使用 mutex 保護）
             if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
-                if (USBSerial.available()) {
-                    c = USBSerial.read();
-                    available = USBSerial.available();  // 更新剩餘可用資料數量
+                if (Serial.available()) {
+                    c = Serial.read();
+                    available = Serial.available();  // 更新剩餘可用資料數量
                 } else {
                     available = 0;  // 沒有資料了
                 }
@@ -281,14 +282,14 @@ void cdcTask(void* parameter) {
             if (c == '\n' || c == '\r') {
                 // 收到換行符，處理完整命令
                 if (cdc_command_buffer.length() > 0) {
-                    // 取得 mutex 保護 USBSerial 輸出
+                    // 取得 mutex 保護 Serial 輸出
                     if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(1000))) {
                         // 處理命令（CDC 命令只輸出到 CDC）
                         parser.processCommand(cdc_command_buffer, cdc_response, CMD_SOURCE_CDC);
                         cdc_command_buffer = "";  // 清空緩衝區
 
                         // 顯示提示符
-                        USBSerial.print("> ");
+                        Serial.print("> ");
                         xSemaphoreGive(serialMutex);
                     }
                 }
@@ -318,9 +319,9 @@ void bleTask(void* parameter) {
             String command = String(packet.command);
             command.trim();
 
-            // 調試輸出（保護 USBSerial）
+            // 調試輸出（保護 Serial）
             if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(100))) {
-                USBSerial.printf("\n[BLE CMD] %s\n", command.c_str());
+                Serial.printf("\n[BLE CMD] %s\n", command.c_str());
                 xSemaphoreGive(serialMutex);
             }
 
@@ -427,7 +428,7 @@ void motorTask(void* parameter) {
 
 void setup() {
     // ========== 步驟 1: 初始化 USB ==========
-    USBSerial.begin();
+    Serial.begin();
     HID.begin();
     HID.onData(onHIDData);
     USB.begin();
@@ -435,7 +436,7 @@ void setup() {
     // ========== 步驟 1.5: 初始化狀態 LED ==========
     // Initialize status LED (default brightness: 25)
     if (!statusLED.begin(48, 25)) {
-        USBSerial.println("⚠️ Status LED initialization failed!");
+        Serial.println("⚠️ Status LED initialization failed!");
     } else {
         // Show yellow blinking during initialization
         statusLED.blinkYellow(200);
@@ -443,41 +444,41 @@ void setup() {
 
     // ========== 步驟 1.6: 初始化週邊管理器 ==========
     // Motor control is now integrated into UART1Mux (no separate motor control)
-    USBSerial.println("");
+    Serial.println("");
     if (!peripheralManager.begin()) {  // Motor control now in UART1
-        USBSerial.println("❌ Peripheral manager initialization failed!");
+        Serial.println("❌ Peripheral manager initialization failed!");
         // Non-critical - system can continue without peripherals
     } else {
-        USBSerial.println("✅ Peripheral manager initialized successfully");
+        Serial.println("✅ Peripheral manager initialized successfully");
 
         // Initialize peripheral settings
         if (peripheralManager.beginSettings()) {
-            USBSerial.println("✅ Peripheral settings manager initialized");
+            Serial.println("✅ Peripheral settings manager initialized");
 
             // Load settings from NVS
             if (peripheralManager.loadSettings()) {
-                USBSerial.println("✅ Peripheral settings loaded from NVS");
+                Serial.println("✅ Peripheral settings loaded from NVS");
 
                 // Apply settings to all peripherals
                 if (peripheralManager.applySettings()) {
-                    USBSerial.println("✅ Peripheral settings applied");
+                    Serial.println("✅ Peripheral settings applied");
                 } else {
-                    USBSerial.println("⚠️ Some peripheral settings may not have been applied");
+                    Serial.println("⚠️ Some peripheral settings may not have been applied");
                 }
             } else {
-                USBSerial.println("ℹ️ Using default peripheral settings");
+                Serial.println("ℹ️ Using default peripheral settings");
             }
         } else {
-            USBSerial.println("❌ Peripheral settings manager initialization failed");
+            Serial.println("❌ Peripheral settings manager initialization failed");
         }
 
         // Force UART1 to PWM/RPM mode at startup (non-persistent default)
-        USBSerial.println("");
-        USBSerial.println("🔧 Setting UART1 to default PWM/RPM mode...");
+        Serial.println("");
+        Serial.println("🔧 Setting UART1 to default PWM/RPM mode...");
         if (peripheralManager.getUART1().setModePWM_RPM()) {
-            USBSerial.println("✅ UART1 set to PWM/RPM mode (default)");
+            Serial.println("✅ UART1 set to PWM/RPM mode (default)");
         } else {
-            USBSerial.println("⚠️ Failed to set UART1 to PWM/RPM mode");
+            Serial.println("⚠️ Failed to set UART1 to PWM/RPM mode");
         }
     }
 
@@ -491,7 +492,7 @@ void setup() {
 
     // 檢查資源創建是否成功
     if (!hidDataQueue || !bleCommandQueue || !serialMutex || !bufferMutex || !hidSendMutex || !bleNotifyQueue) {
-        USBSerial.println("❌ CRITICAL ERROR: FreeRTOS resource creation failed!");
+        Serial.println("❌ CRITICAL ERROR: FreeRTOS resource creation failed!");
         // Critical error - flash red LED fast and halt
         statusLED.blinkRed(100);
         statusLED.update();  // Update once to show the LED state
@@ -503,79 +504,79 @@ void setup() {
     }
 
     // ========== 步驟 3: 創建回應物件 ==========
-    cdc_response = new CDCResponse(USBSerial);
+    cdc_response = new CDCResponse(Serial);
     hid_response = new HIDResponse(&HID);
     multi_response = new MultiChannelResponse(cdc_response, hid_response);
 
     // ========== 步驟 4: 等待 USB 連接（在 BLE 初始化之前）==========
     unsigned long start = millis();
-    while (!USBSerial && (millis() - start < 5000)) {
+    while (!Serial && (millis() - start < 5000)) {
         statusLED.update();  // Update LED during wait to show blinking
         delay(100);
     }
 
     // ========== 步驟 5: 顯示歡迎訊息 ==========
-    USBSerial.println("\n=================================");
-    USBSerial.println("ESP32-S3 馬達控制系統");
-    USBSerial.println("=================================");
-    USBSerial.println("系統功能:");
-    USBSerial.println("  ✅ USB CDC 序列埠控制台");
-    USBSerial.println("  ✅ USB HID 自訂協定 (64 bytes)");
-    USBSerial.println("  ✅ BLE GATT 無線介面");
-    USBSerial.println("  ✅ WiFi Web 伺服器（AP/STA 模式）");
-    USBSerial.println("  ✅ WebSocket 即時 RPM 監控");
-    USBSerial.println("  ✅ REST API 馬達控制");
-    USBSerial.println("  ✅ PWM 馬達控制 (MCPWM)");
-    USBSerial.println("  ✅ 轉速計 RPM 量測");
-    USBSerial.println("  ✅ FreeRTOS 多工架構");
-    USBSerial.println("");
-    USBSerial.println("硬體配置:");
-    USBSerial.println("  GPIO 10: PWM 輸出");
-    USBSerial.println("  GPIO 11: 轉速計輸入");
-    USBSerial.println("  GPIO 12: 脈衝輸出");
-    USBSerial.println("");
-    USBSerial.printf("初始設定:\n");
-    USBSerial.printf("  PWM 頻率: %u Hz\n", peripheralManager.getUART1().getPWMFrequency());
-    USBSerial.printf("  PWM 占空比: %.1f%%\n", peripheralManager.getUART1().getPWMDuty());
-    USBSerial.printf("  極對數: %d\n", peripheralManager.getUART1().getPolePairs());
-    USBSerial.println("");
-    USBSerial.println("輸入 'HELP' 查看所有命令");
-    USBSerial.println("=================================");
+    Serial.println("\n=================================");
+    Serial.println("ESP32-S3 馬達控制系統");
+    Serial.println("=================================");
+    Serial.println("系統功能:");
+    Serial.println("  ✅ USB CDC 序列埠控制台");
+    Serial.println("  ✅ USB HID 自訂協定 (64 bytes)");
+    Serial.println("  ✅ BLE GATT 無線介面");
+    Serial.println("  ✅ WiFi Web 伺服器（AP/STA 模式）");
+    Serial.println("  ✅ WebSocket 即時 RPM 監控");
+    Serial.println("  ✅ REST API 馬達控制");
+    Serial.println("  ✅ PWM 馬達控制 (MCPWM)");
+    Serial.println("  ✅ 轉速計 RPM 量測");
+    Serial.println("  ✅ FreeRTOS 多工架構");
+    Serial.println("");
+    Serial.println("硬體配置:");
+    Serial.println("  GPIO 10: PWM 輸出");
+    Serial.println("  GPIO 11: 轉速計輸入");
+    Serial.println("  GPIO 12: 脈衝輸出");
+    Serial.println("");
+    Serial.printf("初始設定:\n");
+    Serial.printf("  PWM 頻率: %u Hz\n", peripheralManager.getUART1().getPWMFrequency());
+    Serial.printf("  PWM 占空比: %.1f%%\n", peripheralManager.getUART1().getPWMDuty());
+    Serial.printf("  極對數: %d\n", peripheralManager.getUART1().getPolePairs());
+    Serial.println("");
+    Serial.println("輸入 'HELP' 查看所有命令");
+    Serial.println("=================================");
 
     // ========== 步驟 5.5: 初始化 SPIFFS 檔案系統 ==========
-    USBSerial.println("");
-    USBSerial.println("=== 初始化 SPIFFS 檔案系統 ===");
+    Serial.println("");
+    Serial.println("=== 初始化 SPIFFS 檔案系統 ===");
 
     if (!SPIFFS.begin(true)) {  // true = format if mount fails
-        USBSerial.println("❌ SPIFFS mount failed!");
-        USBSerial.println("  Web 介面將使用內建 HTML（備用模式）");
+        Serial.println("❌ SPIFFS mount failed!");
+        Serial.println("  Web 介面將使用內建 HTML（備用模式）");
     } else {
-        USBSerial.println("✅ SPIFFS mounted successfully");
+        Serial.println("✅ SPIFFS mounted successfully");
 
         // List files in SPIFFS for debugging
         File root = SPIFFS.open("/");
         File file = root.openNextFile();
         if (file) {
-            USBSerial.println("📁 SPIFFS files:");
+            Serial.println("📁 SPIFFS files:");
             while (file) {
-                USBSerial.printf("  - %s (%d bytes)\n", file.name(), file.size());
+                Serial.printf("  - %s (%d bytes)\n", file.name(), file.size());
                 file = root.openNextFile();
             }
         } else {
-            USBSerial.println("  ⚠️ No files found in SPIFFS");
-            USBSerial.println("  請使用 'pio run --target uploadfs' 上傳檔案");
+            Serial.println("  ⚠️ No files found in SPIFFS");
+            Serial.println("  請使用 'pio run --target uploadfs' 上傳檔案");
         }
     }
 
-    USBSerial.println("=================================");
+    Serial.println("=================================");
 
     // ========== 步驟 6: 初始化 WiFi 和 Web 伺服器 ==========
-    USBSerial.println("");
-    USBSerial.println("=== 初始化 WiFi 和 Web 伺服器 ===");
+    Serial.println("");
+    Serial.println("=== 初始化 WiFi 和 Web 伺服器 ===");
 
     // Initialize WiFi settings
     if (!wifiSettingsManager.begin()) {
-        USBSerial.println("⚠️ WiFi settings initialization failed, using defaults");
+        Serial.println("⚠️ WiFi settings initialization failed, using defaults");
     }
 
     // Load WiFi settings from NVS
@@ -584,9 +585,9 @@ void setup() {
 
     // Initialize WiFi manager
     if (!wifiManager.begin(const_cast<WiFiSettings*>(&wifiSettings))) {
-        USBSerial.println("❌ WiFi manager initialization failed!");
+        Serial.println("❌ WiFi manager initialization failed!");
     } else {
-        USBSerial.println("✅ WiFi manager initialized");
+        Serial.println("✅ WiFi manager initialized");
     }
 
     // Initialize web server (motor control now in UART1)
@@ -597,61 +598,61 @@ void setup() {
         &peripheralManager,
         &wifiSettingsManager
     )) {
-        USBSerial.println("❌ Web server initialization failed!");
+        Serial.println("❌ Web server initialization failed!");
     } else {
-        USBSerial.println("✅ Web server initialized");
+        Serial.println("✅ Web server initialized");
     }
 
     // Start WiFi if configured
     if (wifiSettings.mode != WiFiMode::OFF) {
-        USBSerial.printf("🔧 啟動 WiFi 模式: ");
+        Serial.printf("🔧 啟動 WiFi 模式: ");
         switch (wifiSettings.mode) {
             case WiFiMode::AP:
-                USBSerial.println("Access Point");
+                Serial.println("Access Point");
                 break;
             case WiFiMode::STA:
-                USBSerial.println("Station");
+                Serial.println("Station");
                 break;
             case WiFiMode::AP_STA:
-                USBSerial.println("AP + Station");
+                Serial.println("AP + Station");
                 break;
             default:
-                USBSerial.println("Unknown");
+                Serial.println("Unknown");
                 break;
         }
 
         statusLED.update();  // Update LED before WiFi start
         if (wifiManager.start()) {
-            USBSerial.println("✅ WiFi started successfully");
+            Serial.println("✅ WiFi started successfully");
             statusLED.update();  // Update LED after WiFi start
 
             // Start web server if WiFi is connected
             if (wifiManager.isConnected()) {
                 statusLED.update();  // Update LED before web server start
                 if (webServerManager.start()) {
-                    USBSerial.println("✅ Web server started successfully");
-                    USBSerial.println("");
-                    USBSerial.println("🌐 Web 介面資訊:");
-                    USBSerial.printf("  URL: http://%s/\n", wifiManager.getIPAddress().c_str());
-                    USBSerial.printf("  WebSocket: ws://%s/ws\n", wifiManager.getIPAddress().c_str());
-                    USBSerial.println("  可透過網頁控制馬達並即時查看 RPM");
+                    Serial.println("✅ Web server started successfully");
+                    Serial.println("");
+                    Serial.println("🌐 Web 介面資訊:");
+                    Serial.printf("  URL: http://%s/\n", wifiManager.getIPAddress().c_str());
+                    Serial.printf("  WebSocket: ws://%s/ws\n", wifiManager.getIPAddress().c_str());
+                    Serial.println("  可透過網頁控制馬達並即時查看 RPM");
                 } else {
-                    USBSerial.println("⚠️ Web server failed to start");
+                    Serial.println("⚠️ Web server failed to start");
                 }
             }
         } else {
-            USBSerial.println("⚠️ WiFi failed to start");
-            USBSerial.println("  使用 'WIFI START' 命令手動啟動");
+            Serial.println("⚠️ WiFi failed to start");
+            Serial.println("  使用 'WIFI START' 命令手動啟動");
         }
     } else {
-        USBSerial.println("ℹ️ WiFi 模式: OFF (未啟動)");
-        USBSerial.println("  使用 'WIFI START' 命令啟動 WiFi");
+        Serial.println("ℹ️ WiFi 模式: OFF (未啟動)");
+        Serial.println("  使用 'WIFI START' 命令啟動 WiFi");
     }
 
-    USBSerial.println("=================================");
+    Serial.println("=================================");
 
     // ========== 步驟 7: 初始化 BLE（現在 mutex 已準備好）==========
-    USBSerial.println("[INFO] 正在初始化 BLE...");
+    Serial.println("[INFO] 正在初始化 BLE...");
     statusLED.update();  // Update LED during initialization
 
     BLEDevice::init("ESP32-S3 Motor Control");
@@ -688,11 +689,11 @@ void setup() {
     // 創建 BLE 回應物件
     ble_response = new BLEResponse(pTxCharacteristic);
 
-    USBSerial.println("[INFO] BLE 初始化完成");
-    USBSerial.println("\nBluetooth 資訊:");
-    USBSerial.println("  BLE 裝置名稱: ESP32_S3_Console");
-    USBSerial.println("=================================");
-    USBSerial.print("\n> ");
+    Serial.println("[INFO] BLE 初始化完成");
+    Serial.println("\nBluetooth 資訊:");
+    Serial.println("  BLE 裝置名稱: ESP32_S3_Console");
+    Serial.println("=================================");
+    Serial.print("\n> ");
 
     // 創建 FreeRTOS Tasks
     statusLED.update();  // Update LED before creating tasks
@@ -756,18 +757,18 @@ void setup() {
         1                  // Core 1
     );
 
-    USBSerial.println("[INFO] FreeRTOS Tasks 已啟動");
-    USBSerial.println("[INFO] - HID Task (優先權 2)");
-    USBSerial.println("[INFO] - CDC Task (優先權 1)");
-    USBSerial.println("[INFO] - BLE Task (優先權 1)");
-    USBSerial.println("[INFO] - Motor Task (優先權 1)");
-    USBSerial.println("[INFO] - WiFi Task (優先權 1)");
-    USBSerial.println("[INFO] - Peripheral Task (優先權 1)");
+    Serial.println("[INFO] FreeRTOS Tasks 已啟動");
+    Serial.println("[INFO] - HID Task (優先權 2)");
+    Serial.println("[INFO] - CDC Task (優先權 1)");
+    Serial.println("[INFO] - BLE Task (優先權 1)");
+    Serial.println("[INFO] - Motor Task (優先權 1)");
+    Serial.println("[INFO] - WiFi Task (優先權 1)");
+    Serial.println("[INFO] - Peripheral Task (優先權 1)");
 
     // LED state will be managed by motorTask based on actual system status
     // Don't set it here to avoid confusion
-    USBSerial.println("✅ System initialization complete");
-    USBSerial.println("ℹ️ LED status will be updated by Motor Task based on system state");
+    Serial.println("✅ System initialization complete");
+    Serial.println("ℹ️ LED status will be updated by Motor Task based on system state");
 }
 
 void loop() {

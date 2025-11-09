@@ -1,8 +1,5 @@
 #include "StatusLED.h"
-#include "USBCDC.h"
 
-// External reference to USBSerial (defined in main.cpp)
-extern USBCDC USBSerial;
 
 
 StatusLED::StatusLED() {
@@ -18,7 +15,7 @@ StatusLED::~StatusLED() {
 
 bool StatusLED::begin(int pin, uint8_t initialBrightness) {
     if (initialized) {
-        USBSerial.println("⚠️ StatusLED already initialized");
+        Serial.println("⚠️ StatusLED already initialized");
         return true;
     }
 
@@ -29,7 +26,7 @@ bool StatusLED::begin(int pin, uint8_t initialBrightness) {
     pixel = new Adafruit_NeoPixel(1, ledPin, NEO_GRB + NEO_KHZ800);
 
     if (!pixel) {
-        USBSerial.println("❌ Failed to create NeoPixel object");
+        Serial.println("❌ Failed to create NeoPixel object");
         return false;
     }
 
@@ -40,7 +37,7 @@ bool StatusLED::begin(int pin, uint8_t initialBrightness) {
 
     initialized = true;
 
-    USBSerial.printf("✅ Status LED initialized (GPIO %d, brightness %d)\n", ledPin, brightness);
+    Serial.printf("✅ Status LED initialized (GPIO %d, brightness %d)\n", ledPin, brightness);
     return true;
 }
 
