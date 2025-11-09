@@ -104,10 +104,9 @@ private:
 };
 
 // CDC 回應實作
-// Note: When ARDUINO_USB_CDC_ON_BOOT=1, Serial is HWCDC type (not USBCDC)
 class CDCResponse : public ICommandResponse {
 public:
-    CDCResponse(HWCDC& serial) : _serial(serial) {}
+    CDCResponse(USBCDC& serial) : _serial(serial) {}
 
     void print(const char* str) override {
         _serial.print(str);
@@ -127,7 +126,7 @@ public:
     }
 
 private:
-    HWCDC& _serial;
+    USBCDC& _serial;
 };
 
 // HID 回應實作
