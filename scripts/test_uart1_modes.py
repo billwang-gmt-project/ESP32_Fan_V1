@@ -44,6 +44,79 @@ import time
 import sys
 import re
 from datetime import datetime
+from typing import Optional, List, Tuple
+
+# ==================== 配置常數 ====================
+# ESP32-S3 VID/PID
+ESP32_VID = 0x303A
+ESP32_PID = 0x4002  # CDC interface
+
+# 序列埠參數
+DEFAULT_BAUDRATE = 115200
+SERIAL_TIMEOUT = 1.0
+DTR_STABILIZATION_DELAY = 2.0  # 等待 DTR 穩定（秒）
+DEVICE_INIT_DELAY = 3.0  # 設備重置後初始化時間（秒）
+
+# 命令參數
+COMMAND_RESPONSE_DELAY = 0.5  # 發送命令後等待（秒）
+COMMAND_TIMEOUT = 1.0  # 命令執行超時（秒）
+STATUS_CHECK_DELAY = 0.3  # 檢查狀態前等待（秒）
+MODE_SWITCH_DELAY = 0.5  # 模式切換後等待（秒）
+POLL_INTERVAL = 0.1  # 輪詢間隔（秒）
+
+# 測試參數
+FREQUENCY_ERROR_TOLERANCE = 5.0  # 頻率誤差容許範圍 (%)
+PWM_STABILIZATION_DELAY = 0.3  # PWM 設定後穩定時間（秒）
+TRANSITION_DELAY = 0.1  # 快速切換之間的延遲（秒）
+
+# PWM/RPM 測試頻率
+TEST_FREQUENCIES: List[Tuple[int, str]] = [
+    (100, "低頻率"),
+    (1000, "中頻率"),
+    (5000, "高頻率"),
+    (10000, "極高頻率")
+]
+
+# PWM 佔空比測試點
+TEST_DUTIES: List[int] = [0, 25, 50, 75, 100]
+
+# PWM 頻率切換測試序列
+TRANSITION_FREQUENCIES: List[int] = [1000, 5000, 2000, 10000, 500]
+
+# PWM 佔空比切換測試序列
+TRANSITION_DUTIES: List[int] = [10, 90, 30, 70, 50]
+
+# 極限頻率測試
+EXTREME_FREQUENCIES: List[Tuple[int, str]] = [
+    (1, "最小頻率"),
+    (500000, "最大頻率 (500 kHz)")
+]
+
+# UART 測試參數
+TEST_BAUDS: List[int] = [2400, 9600, 115200, 460800, 921600, 1500000]
+DEFAULT_TEST_BAUD = 115200
+
+# UART 測試訊息
+TEST_MESSAGES: List[str] = [
+    "Hi",  # 短
+    "Hello World from ESP32-S3!",  # 中
+    "A" * 100,  # 長（100 字元）
+    "The quick brown fox jumps over the lazy dog 1234567890"  # 混合
+]
+
+# UART 特殊字元測試
+SPECIAL_MESSAGES: List[str] = [
+    "Hello!@#$%",
+    "Number: 12345",
+    "Symbols: !@#$%^&*()",
+]
+
+# 模式切換測試序列
+MODE_SWITCH_SEQUENCE: List[str] = ["PWM", "UART", "PWM"]
+
+# 測試基準值（用於單變數測試）
+TEST_BASELINE_DUTY = 50  # 測試頻率變化時使用的固定佔空比
+TEST_BASELINE_FREQ = 1000  # 測試佔空比變化時使用的固定頻率 (Hz)
 
 # ANSI 顏色代碼
 class Colors:
@@ -57,57 +130,57 @@ class Colors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-def print_header(text):
+def print_header(text: str) -> None:
     """列印測試章節標題"""
     print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*70}{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}{text:^70}{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}{'='*70}{Colors.ENDC}\n")
 
-def print_step(step_num, text):
+def print_step(step_num: int, text: str) -> None:
     """列印測試步驟"""
     print(f"{Colors.OKCYAN}{Colors.BOLD}[步驟 {step_num}]{Colors.ENDC} {text}")
 
-def print_success(text):
+def print_success(text: str) -> None:
     """列印成功訊息"""
     print(f"{Colors.OKGREEN}✅ {text}{Colors.ENDC}")
 
-def print_fail(text):
+def print_fail(text: str) -> None:
     """列印失敗訊息"""
     print(f"{Colors.FAIL}❌ {text}{Colors.ENDC}")
 
-def print_warning(text):
+def print_warning(text: str) -> None:
     """列印警告訊息"""
     print(f"{Colors.WARNING}⚠️  {text}{Colors.ENDC}")
 
-def print_info(text):
+def print_info(text: str) -> None:
     """列印資訊訊息"""
     print(f"{Colors.OKBLUE}ℹ️  {text}{Colors.ENDC}")
 
-def wait_for_user(prompt="按 ENTER 繼續..."):
+def wait_for_user(prompt: str = "按 ENTER 繼續...") -> None:
     """等待使用者確認"""
     print(f"\n{Colors.WARNING}{prompt}{Colors.ENDC}")
     input()
 
-def find_esp32_port():
+def find_esp32_port() -> Optional[str]:
     """尋找 ESP32-S3 CDC 埠"""
     ports = serial.tools.list_ports.comports()
     for port in ports:
-        # ESP32-S3 VID:PID = 303A:4002
-        if '303A' in port.hwid.upper():
+        # 使用正確的 VID/PID 匹配
+        if port.vid == ESP32_VID and port.pid == ESP32_PID:
             return port.device
     return None
 
-def send_command(ser, command, wait_time=0.5):
+def send_command(ser: serial.Serial, command: str, wait_time: float = COMMAND_RESPONSE_DELAY) -> str:
     """發送命令並讀取回應"""
     ser.write(f"{command}\n".encode('utf-8'))
     time.sleep(wait_time)
     response = ""
     while ser.in_waiting:
         response += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
-        time.sleep(0.1)
+        time.sleep(POLL_INTERVAL)
     return response
 
-def parse_rpm_from_status(response):
+def parse_rpm_from_status(response: str) -> Optional[float]:
     """從 UART1 STATUS 回應中解析 RPM 頻率"""
     # 尋找 "Frequency: XXX.XX Hz" 在 PWM/RPM 模式
     match = re.search(r'Frequency:\s+([\d.]+)\s*Hz', response)
@@ -115,7 +188,7 @@ def parse_rpm_from_status(response):
         return float(match.group(1))
     return None
 
-def test_hardware_setup():
+def test_hardware_setup() -> None:
     """測試 0：驗證硬體連接"""
     print_header("硬體設置驗證")
 
@@ -133,7 +206,7 @@ def test_hardware_setup():
     wait_for_user("🔌 請連接 TX1 到 RX1，然後按 ENTER 開始測試...")
     print_success("硬體設置確認完成")
 
-def test_pwm_rpm_mode(ser):
+def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     """測試套件 1：PWM/RPM 模式測試"""
     print_header("測試套件 1：PWM/RPM 模式測試")
 
@@ -152,36 +225,29 @@ def test_pwm_rpm_mode(ser):
     print_step("1.1", "頻率準確度測試")
     print_info("在不同頻率點測試 PWM 輸出...")
 
-    test_frequencies = [
-        (100, "低頻率"),
-        (1000, "中頻率"),
-        (5000, "高頻率"),
-        (10000, "極高頻率")
-    ]
-
-    for freq, desc in test_frequencies:
+    for freq, desc in TEST_FREQUENCIES:
         print(f"\n  測試 {desc}：{freq} Hz")
 
-        # 設定 PWM 頻率，使用 50% 佔空比
-        cmd = f"UART1 PWM {freq} 50 ON"
-        response = send_command(ser, cmd, wait_time=0.5)
+        # 設定 PWM 頻率，使用基準佔空比
+        cmd = f"UART1 PWM {freq} {TEST_BASELINE_DUTY} ON"
+        response = send_command(ser, cmd)
         print(f"  命令：{cmd}")
 
         # 等待穩定
-        time.sleep(0.3)
+        time.sleep(PWM_STABILIZATION_DELAY)
 
         # 讀取狀態獲取 RPM
-        response = send_command(ser, "UART1 STATUS", wait_time=0.5)
+        response = send_command(ser, "UART1 STATUS")
         measured_freq = parse_rpm_from_status(response)
 
         if measured_freq:
             error_percent = abs(measured_freq - freq) / freq * 100
             print(f"  設定：{freq} Hz，測量：{measured_freq:.2f} Hz，誤差：{error_percent:.2f}%")
 
-            if error_percent < 5:  # 容許 5% 誤差
-                print_success(f"頻率準確度：通過（誤差在 5% 容許範圍內）")
+            if error_percent < FREQUENCY_ERROR_TOLERANCE:
+                print_success(f"頻率準確度：通過（誤差在 {FREQUENCY_ERROR_TOLERANCE}% 容許範圍內）")
             else:
-                print_warning(f"頻率準確度：警告（誤差 {error_percent:.2f}% > 5%）")
+                print_warning(f"頻率準確度：警告（誤差 {error_percent:.2f}% > {FREQUENCY_ERROR_TOLERANCE}%）")
         else:
             print_warning("無法從狀態解析頻率")
 
@@ -191,12 +257,11 @@ def test_pwm_rpm_mode(ser):
 
     # 測試 1.2：佔空比變化
     print_step("1.2", "佔空比變化測試（固定頻率）")
-    print_info("在 1000 Hz 測試不同佔空比...")
+    print_info(f"在 {TEST_BASELINE_FREQ} Hz 測試不同佔空比...")
 
-    test_duties = [0, 25, 50, 75, 100]
-    for duty in test_duties:
+    for duty in TEST_DUTIES:
         print(f"\n  測試佔空比：{duty}%")
-        cmd = f"UART1 PWM 1000 {duty} ON"
+        cmd = f"UART1 PWM {TEST_BASELINE_FREQ} {duty} ON"
         response = send_command(ser, cmd)
         print(f"  命令：{cmd}")
         print(f"  回應：{response.strip()}")
@@ -204,7 +269,7 @@ def test_pwm_rpm_mode(ser):
         if f"{duty}" in response or f"{duty}.0" in response:
             print_success(f"佔空比 {duty}% 設定成功")
 
-        time.sleep(0.3)
+        time.sleep(PWM_STABILIZATION_DELAY)
 
     wait_for_user()
 
@@ -213,14 +278,12 @@ def test_pwm_rpm_mode(ser):
     print_info("快速改變頻率以檢測毛刺...")
     print_warning("⚠️  觀察：注意任何毛刺或不連續現象")
 
-    transition_freqs = [1000, 5000, 2000, 10000, 500]
-
-    for i, freq in enumerate(transition_freqs):
-        print(f"\n  切換 {i+1}：→ {freq} Hz (50% 佔空比)")
-        cmd = f"UART1 PWM {freq} 50 ON"
-        response = send_command(ser, cmd, wait_time=0.2)
+    for i, freq in enumerate(TRANSITION_FREQUENCIES):
+        print(f"\n  切換 {i+1}：→ {freq} Hz ({TEST_BASELINE_DUTY}% 佔空比)")
+        cmd = f"UART1 PWM {freq} {TEST_BASELINE_DUTY} ON"
+        response = send_command(ser, cmd, wait_time=TRANSITION_DELAY * 2)
         print(f"  回應：{response.strip()}")
-        time.sleep(0.1)  # 最小延遲以觀察切換
+        time.sleep(TRANSITION_DELAY)
 
     print()
     user_input = input(f"{Colors.WARNING}您觀察到任何毛刺嗎？(yes/no)：{Colors.ENDC}")
@@ -236,14 +299,12 @@ def test_pwm_rpm_mode(ser):
     print_info("在固定頻率下快速改變佔空比...")
     print_warning("⚠️  觀察：注意任何毛刺或不連續現象")
 
-    transition_duties = [10, 90, 30, 70, 50]
-
-    for i, duty in enumerate(transition_duties):
-        print(f"\n  切換 {i+1}：→ {duty}% (1000 Hz)")
-        cmd = f"UART1 PWM 1000 {duty} ON"
-        response = send_command(ser, cmd, wait_time=0.2)
+    for i, duty in enumerate(TRANSITION_DUTIES):
+        print(f"\n  切換 {i+1}：→ {duty}% ({TEST_BASELINE_FREQ} Hz)")
+        cmd = f"UART1 PWM {TEST_BASELINE_FREQ} {duty} ON"
+        response = send_command(ser, cmd, wait_time=TRANSITION_DELAY * 2)
         print(f"  回應：{response.strip()}")
-        time.sleep(0.1)
+        time.sleep(TRANSITION_DELAY)
 
     print()
     user_input = input(f"{Colors.WARNING}您觀察到任何毛刺嗎？(yes/no)：{Colors.ENDC}")
@@ -258,24 +319,19 @@ def test_pwm_rpm_mode(ser):
     print_step("1.5", "極限頻率測試")
     print_info("測試最小和最大頻率限制...")
 
-    extreme_tests = [
-        (1, "最小頻率"),
-        (500000, "最大頻率 (500 kHz)")
-    ]
-
-    for freq, desc in extreme_tests:
+    for freq, desc in EXTREME_FREQUENCIES:
         print(f"\n  測試 {desc}：{freq} Hz")
-        cmd = f"UART1 PWM {freq} 50 ON"
-        response = send_command(ser, cmd, wait_time=0.5)
+        cmd = f"UART1 PWM {freq} {TEST_BASELINE_DUTY} ON"
+        response = send_command(ser, cmd)
         print(f"  回應：{response.strip()}")
 
-        time.sleep(0.3)
-        status = send_command(ser, "UART1 STATUS", wait_time=0.5)
+        time.sleep(PWM_STABILIZATION_DELAY)
+        status = send_command(ser, "UART1 STATUS")
         print(f"  狀態：\n{status}")
 
     print_success("PWM/RPM 模式測試完成")
 
-def test_uart_mode(ser):
+def test_uart_mode(ser: serial.Serial) -> None:
     """測試套件 2：UART 模式測試"""
     print_header("測試套件 2：UART 模式測試")
 
@@ -294,16 +350,7 @@ def test_uart_mode(ser):
     print_step("2.1", "鮑率測試（Echo Loopback）")
     print_info("在不同鮑率測試 UART 通訊...")
 
-    test_bauds = [
-        2400,
-        9600,
-        115200,
-        460800,
-        921600,
-        1500000
-    ]
-
-    for baud in test_bauds:
+    for baud in TEST_BAUDS:
         print(f"\n  測試鮑率：{baud}")
 
         # 配置鮑率
@@ -311,17 +358,17 @@ def test_uart_mode(ser):
         response = send_command(ser, cmd)
         print(f"  配置回應：{response.strip()}")
 
-        time.sleep(0.3)
+        time.sleep(STATUS_CHECK_DELAY)
 
         # 發送測試訊息
         test_msg = f"Test@{baud}bps"
         cmd = f"UART1 WRITE {test_msg}"
         print(f"  發送：'{test_msg}'")
-        response = send_command(ser, cmd, wait_time=0.5)
+        response = send_command(ser, cmd)
         print(f"  寫入回應：{response.strip()}")
 
         # 檢查狀態（loopback 應該接收到資料）
-        status = send_command(ser, "UART1 STATUS", wait_time=0.3)
+        status = send_command(ser, "UART1 STATUS", wait_time=STATUS_CHECK_DELAY)
 
         if "bytes" in response.lower() or "sent" in response.lower():
             print_success(f"鮑率 {baud}：資料成功發送")
@@ -332,25 +379,18 @@ def test_uart_mode(ser):
 
     # 測試 2.2：不同訊息長度
     print_step("2.2", "訊息長度測試")
-    print_info("在 115200 鮑率測試不同訊息長度...")
+    print_info(f"在 {DEFAULT_TEST_BAUD} 鮑率測試不同訊息長度...")
 
-    # 設定為 115200
-    send_command(ser, "UART1 CONFIG 115200")
-    time.sleep(0.3)
+    # 設定為 DEFAULT_TEST_BAUD
+    send_command(ser, f"UART1 CONFIG {DEFAULT_TEST_BAUD}")
+    time.sleep(STATUS_CHECK_DELAY)
 
-    test_messages = [
-        "Hi",  # 短
-        "Hello World from ESP32-S3!",  # 中
-        "A" * 100,  # 長（100 字元）
-        "The quick brown fox jumps over the lazy dog 1234567890"  # 混合
-    ]
-
-    for i, msg in enumerate(test_messages):
+    for i, msg in enumerate(TEST_MESSAGES):
         print(f"\n  測試 {i+1}：長度 {len(msg)} 字元")
         print(f"  訊息：'{msg[:50]}{'...' if len(msg) > 50 else ''}'")
 
         cmd = f"UART1 WRITE {msg}"
-        response = send_command(ser, cmd, wait_time=0.5)
+        response = send_command(ser, cmd)
         print(f"  回應：{response.strip()}")
 
         if f"{len(msg)}" in response or "sent" in response.lower():
@@ -362,42 +402,35 @@ def test_uart_mode(ser):
     print_step("2.3", "特殊字元測試")
     print_info("測試特殊字元和符號...")
 
-    special_msgs = [
-        "Hello!@#$%",
-        "Number: 12345",
-        "Symbols: !@#$%^&*()",
-    ]
-
-    for msg in special_msgs:
+    for msg in SPECIAL_MESSAGES:
         print(f"\n  測試：'{msg}'")
         cmd = f"UART1 WRITE {msg}"
-        response = send_command(ser, cmd, wait_time=0.5)
+        response = send_command(ser, cmd)
         print(f"  回應：{response.strip()}")
 
     print_success("UART 模式測試完成")
 
-def test_mode_switching(ser):
+def test_mode_switching(ser: serial.Serial) -> None:
     """測試套件 3：模式切換測試"""
     print_header("測試套件 3：模式切換測試")
 
     # 測試 3.1：PWM → UART → PWM
     print_step("3.1", "模式切換循環：PWM → UART → PWM")
 
-    modes = ["PWM", "UART", "PWM"]
-    for i, mode in enumerate(modes):
+    for i, mode in enumerate(MODE_SWITCH_SEQUENCE):
         print(f"\n  切換 {i+1}：→ {mode} 模式")
         cmd = f"UART1 MODE {mode}"
         response = send_command(ser, cmd)
         print(f"  回應：{response.strip()}")
 
         # 驗證狀態
-        status = send_command(ser, "UART1 STATUS", wait_time=0.3)
+        status = send_command(ser, "UART1 STATUS", wait_time=STATUS_CHECK_DELAY)
         if mode in status or ("PWM/RPM" in status and mode == "PWM"):
             print_success(f"模式 {mode}：已驗證")
         else:
             print_fail(f"模式 {mode}：驗證失敗")
 
-        time.sleep(0.5)
+        time.sleep(MODE_SWITCH_DELAY)
 
     wait_for_user()
 
@@ -412,7 +445,7 @@ def test_mode_switching(ser):
     status = send_command(ser, "UART1 STATUS")
     print(f"  狀態：{status}")
 
-    time.sleep(0.5)
+    time.sleep(MODE_SWITCH_DELAY)
 
     # 回到 PWM
     response = send_command(ser, "UART1 MODE PWM")
@@ -422,7 +455,7 @@ def test_mode_switching(ser):
 
     print_success("模式切換測試完成")
 
-def test_error_handling(ser):
+def test_error_handling(ser: serial.Serial) -> None:
     """測試套件 4：錯誤處理測試"""
     print_header("測試套件 4：錯誤處理與邊界測試")
 
@@ -451,7 +484,7 @@ def test_error_handling(ser):
 
     print_success("錯誤處理測試完成")
 
-def test_persistence(ser):
+def test_persistence(ser: serial.Serial) -> None:
     """測試套件 5：設定持久化測試"""
     print_header("測試套件 5：設定持久化測試")
 
@@ -478,11 +511,11 @@ def test_persistence(ser):
 
     # 等待裝置重新初始化
     print("等待裝置重新初始化...")
-    time.sleep(3)
+    time.sleep(DEVICE_INIT_DELAY)
 
     # 檢查狀態
     print("\n  檢查重置後的 UART1 模式...")
-    response = send_command(ser, "UART1 STATUS", wait_time=1.0)
+    response = send_command(ser, "UART1 STATUS", wait_time=COMMAND_TIMEOUT)
     print(f"  狀態：\n{response}")
 
     if "PWM/RPM" in response or "PWM" in response:
@@ -494,7 +527,7 @@ def test_persistence(ser):
 
     print_success("持久化測試完成")
 
-def main():
+def main() -> None:
     """主測試執行"""
     print_header("UART1 多模式綜合測試套件")
     print(f"開始時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -516,9 +549,9 @@ def main():
     try:
         # 開啟序列連接
         print_info(f"在 {port} 開啟序列連接...")
-        ser = serial.Serial(port, 115200, timeout=1)
+        ser = serial.Serial(port, DEFAULT_BAUDRATE, timeout=SERIAL_TIMEOUT)
         ser.setDTR(True)
-        time.sleep(2)  # 等待連接
+        time.sleep(DTR_STABILIZATION_DELAY)  # 等待連接
 
         # 清除緩衝區
         ser.reset_input_buffer()
