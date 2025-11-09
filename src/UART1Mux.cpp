@@ -320,11 +320,12 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
         return false;
     }
 
+    // TEMPORARILY DISABLED: Test if pulse generation causes PWM glitches
     // Output pulse on GPIO 12 BEFORE changing parameters (to observe glitches)
-    Serial.println("[UART1] 📍 Outputting GPIO12 pulse...");
-    Serial.flush();
-    outputPWMChangePulse();
-    Serial.println("[UART1] ✅ GPIO12 pulse done");
+    // Serial.println("[UART1] 📍 Outputting GPIO12 pulse...");
+    // Serial.flush();
+    // outputPWMChangePulse();
+    // Serial.println("[UART1] ✅ GPIO12 pulse done");
 
     // TRULY GLITCH-FREE ATOMIC UPDATE USING LL API
     // Calculate new prescaler and period for target frequency
