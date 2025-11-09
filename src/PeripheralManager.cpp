@@ -230,10 +230,7 @@ void PeripheralManager::handleKeyEvents() {
 }
 
 void PeripheralManager::adjustMotorDuty(bool increase) {
-    // Motor control check removed (now in UART1) if (false) {
-        return;
-    }
-
+    // Motor control now handled by UART1
     float currentDuty = uart1.getPWMDuty();
     float newDuty = currentDuty + (increase ? dutyStepSize : -dutyStepSize);
 
@@ -248,10 +245,7 @@ void PeripheralManager::adjustMotorDuty(bool increase) {
 }
 
 void PeripheralManager::adjustMotorFrequency(bool increase) {
-    // Motor control check removed (now in UART1) if (false) {
-        return;
-    }
-
+    // Motor control now handled by UART1
     uint32_t currentFreq = uart1.getPWMFrequency();
     int32_t newFreq = currentFreq + (increase ? (int32_t)frequencyStepSize : -(int32_t)frequencyStepSize);
 
