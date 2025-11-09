@@ -591,25 +591,30 @@ bool UART1Mux::initPWM() {
 
 bool UART1Mux::initRPM() {
     // Initialize MCPWM Capture for frequency measurement
-    // Note: GPIO configuration is handled automatically by mcpwm_capture_enable_channel
 
-    // Step 1: Set GPIO as input with pull-up
-    gpio_config_t io_conf = {};
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = (1ULL << PIN_UART1_RX);
-    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;  // Pull-up for stable idle state
-    gpio_config(&io_conf);
+    // Step 1: Route GPIO to MCPWM capture signal
+    // CRITICAL: Must call mcpwm_gpio_init() to connect GPIO to MCPWM capture!
+    // This creates the signal path: GPIO18 → MCPWM_UNIT_0 CAP1
+    esp_err_t gpio_result = mcpwm_gpio_init(MCPWM_UNIT_UART1_RPM,  // MCPWM_UNIT_0
+                                             MCPWM_CAP_1,            // Capture channel 1
+                                             PIN_UART1_RX);          // GPIO 18
 
-    // Step 2: Configure capture parameters
+    if (gpio_result != ESP_OK) {
+        Serial.printf("[UART1] ❌ MCPWM GPIO init failed: %s\n", esp_err_to_name(gpio_result));
+        return false;
+    }
+
+    // Step 2: Set pull-up on capture input for stable idle state
+    gpio_set_pull_mode((gpio_num_t)PIN_UART1_RX, GPIO_PULLUP_ONLY);
+
+    // Step 3: Configure capture parameters
     mcpwm_capture_config_t cap_conf;
     cap_conf.cap_edge = MCPWM_POS_EDGE;        // Capture on rising edge
     cap_conf.cap_prescale = 1;                  // No prescaling (80 MHz)
     cap_conf.capture_cb = captureCallback;      // ISR callback
     cap_conf.user_data = nullptr;               // No user data needed
 
-    // Step 3: Enable capture channel
+    // Step 4: Enable capture channel
     esp_err_t result = mcpwm_capture_enable_channel(MCPWM_UNIT_UART1_RPM,
                                                      MCPWM_CAP_UART1_RPM,
                                                      &cap_conf);
@@ -622,12 +627,15 @@ bool UART1Mux::initRPM() {
         lastRPMUpdate = millis();
         rpmFrequency = 0.0;
 
-        Serial.printf("[UART1] ✅ MCPWM Capture initialized (GPIO %d, rising edge, 80 MHz)\n",
-                     PIN_UART1_RX);
+        Serial.printf("[UART1] ✅ MCPWM Capture initialized:\n");
+        Serial.printf("  - Unit: MCPWM_UNIT_%d\n", MCPWM_UNIT_UART1_RPM);
+        Serial.printf("  - Channel: CAP%d\n", (MCPWM_CAP_UART1_RPM == MCPWM_SELECT_CAP1) ? 1 : 0);
+        Serial.printf("  - GPIO: %d (RX1)\n", PIN_UART1_RX);
+        Serial.printf("  - Edge: Rising, Clock: 80 MHz\n");
         return true;
     }
 
-    Serial.printf("[UART1] ❌ MCPWM Capture init failed: %s\n", esp_err_to_name(result));
+    Serial.printf("[UART1] ❌ MCPWM Capture enable failed: %s\n", esp_err_to_name(result));
     return false;
 }
 
