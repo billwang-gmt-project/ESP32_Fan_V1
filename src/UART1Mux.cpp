@@ -773,20 +773,12 @@ void UART1Mux::calculatePWMParameters(uint32_t frequency, uint32_t& prescaler, u
 }
 
 void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
-    // FULLY DIRECT REGISTER ACCESS - NO API CALLS
+    // HYBRID APPROACH - Direct register for period, API for duty
     //
-    // ESP32-S3 MCPWM Register Map:
-    // - Timer CFG0: Contains prescaler [7:0] and period [23:8]
-    // - Operator Timestamp: Contains comparator value for duty cycle
-    //
-    // Key discovery: We must avoid ALL ESP-IDF API calls including mcpwm_set_duty()
-    // because they may internally stop the timer
-
-    // Calculate comparator value from duty cycle
-    uint32_t cmpr_val = (uint32_t)((duty / 100.0) * period);
-    if (cmpr_val > period) {
-        cmpr_val = period;
-    }
+    // After testing, pure register access caused PWM to stop completely.
+    // This hybrid approach balances glitch-free updates with reliability:
+    // - Period: Direct register access (shadow register enabled)
+    // - Duty: ESP-IDF API (proven to work, minimal overhead)
 
     taskENTER_CRITICAL(&mux);
 
@@ -805,12 +797,9 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
         MCPWM1.timer[0].timer_cfg0.val = cfg0_val;
     }
 
-    // Update comparator A value directly (for duty cycle)
-    // Use direct register address to bypass structure definition issues
-    // MCPWM1 base address: 0x6001C000 (ESP32-S3)
-    // Generator 0 Comparator A offset: 0x0014
-    volatile uint32_t* gen0a_cmpr_reg = (volatile uint32_t*)(0x6001C000 + 0x0014);
-    *gen0a_cmpr_reg = cmpr_val;
-
     taskEXIT_CRITICAL(&mux);
+
+    // Update duty using ESP-IDF API (outside critical section)
+    // This is safe because mcpwm_set_duty() uses shadow registers internally
+    mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, MCPWM_GEN_A, duty);
 }
