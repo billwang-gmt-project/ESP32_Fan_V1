@@ -777,21 +777,34 @@ void UART1Mux::calculatePWMParameters(uint32_t frequency, uint32_t& prescaler, u
 }
 
 void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
-    // SIMPLIFIED DUTY UPDATE - Direct percentage API
+    // SMART UPDATE STRATEGY
     //
-    // ESP-IDF source analysis shows both mcpwm_set_duty() and mcpwm_set_duty_in_us()
-    // use TEZ (Timer Equals Zero) synchronization and do NOT stop the timer.
+    // Two scenarios:
+    // 1. Period unchanged (duty-only update): Use mcpwm_set_duty() - TEZ sync, glitch-free ✅
+    // 2. Period changed (frequency update): Use mcpwm_set_frequency() - may glitch ⚠️
     //
-    // Using mcpwm_set_duty() (percentage form) is simpler and avoids potential
-    // rounding errors in microsecond conversion.
-    //
-    // According to ESP-IDF source:
-    // - Updates comparator value via mcpwm_ll_operator_set_compare_value()
-    // - Enables update on TEZ: mcpwm_ll_operator_enable_update_compare_on_tez()
-    // - New duty takes effect at next timer zero crossing (glitch-free)
+    // Challenge: No mcpwm_set_period() API exists in ESP-IDF
 
-    mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, MCPWM_GEN_A, duty);
+    if (period != pwmPeriod) {
+        // Period changed - must update frequency
+        Serial.printf("[UART1] 🔧 Period changed: %u → %u ticks, calling mcpwm_set_frequency()\n",
+                     pwmPeriod, period);
 
-    // Store the period value for tracking
-    pwmPeriod = period;
+        // Calculate target frequency from prescaler and period
+        uint32_t target_frequency = 80000000 / (pwmPrescaler * period);
+
+        // Update frequency (immediate period update, may glitch)
+        mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, target_frequency);
+
+        // Restore exact duty value (mcpwm_set_frequency proportionally scales duty)
+        mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, MCPWM_GEN_A, duty);
+
+        pwmPeriod = period;
+    } else {
+        // Period unchanged - duty-only update (glitch-free!)
+        Serial.printf("[UART1] ✨ Duty-only update: %.1f%% (period unchanged=%u)\n", duty, period);
+
+        // TEZ-synchronized duty update (glitch-free)
+        mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, MCPWM_GEN_A, duty);
+    }
 }
