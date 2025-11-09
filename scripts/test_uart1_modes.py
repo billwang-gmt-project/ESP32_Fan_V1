@@ -234,27 +234,36 @@ def send_command(ser: serial.Serial, command: str, wait_time: float = COMMAND_RE
         response += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
         time.sleep(POLL_INTERVAL)
 
-    # 再等待一小段時間以捕獲調試訊息（如 GLITCH-FREE PATH）
-    time.sleep(0.05)
-    while ser.in_waiting:
-        response += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
-        time.sleep(POLL_INTERVAL)
+    # 再等待以捕獲調試訊息（如 GLITCH-FREE PATH）
+    # ESP32 的調試輸出可能有延遲，多輪等待確保捕獲
+    for _ in range(3):
+        time.sleep(0.05)
+        if ser.in_waiting:
+            response += ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
 
     return response
 
 def extract_debug_info(response: str) -> None:
     """提取並顯示調試訊息"""
     lines = response.split('\n')
+    debug_found = False
+
     for line in lines:
         line = line.strip()
-        if '[UART1]' in line and ('GLITCH-FREE' in line or 'PRESCALER' in line or '🔍' in line or '🧮' in line or '✅' in line or '⚠️' in line):
+        # 顯示所有包含 [UART1] 的調試行
+        if '[UART1]' in line:
+            debug_found = True
             # 高亮顯示調試訊息
             if 'GLITCH-FREE' in line:
                 print(f"  {Colors.OKGREEN}[調試] {line}{Colors.ENDC}")
-            elif 'PRESCALER CHANGE' in line:
+            elif 'PRESCALER CHANGE' in line or 'PRESCALER' in line:
                 print(f"  {Colors.WARNING}[調試] {line}{Colors.ENDC}")
             else:
                 print(f"  {Colors.OKBLUE}[調試] {line}{Colors.ENDC}")
+
+    # 如果沒有找到調試訊息，顯示提示
+    if not debug_found:
+        print(f"  {Colors.WARNING}[調試] （未捕獲到調試訊息，可能需要增加等待時間）{Colors.ENDC}")
 
 def parse_rpm_from_status(response: str) -> Optional[float]:
     """從 UART1 STATUS 回應中解析 RPM 頻率"""
@@ -358,8 +367,8 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
     print_info("預期行為說明：")
     print("  - 第 1 次切換：可能有毛刺（從上一個測試狀態切換，預分頻器可能改變）")
     print("  - 第 2-5 次：取決於預分頻器是否改變")
-    print("  - 若 CDC 控制台顯示 'GLITCH-FREE PATH' → 無毛刺")
-    print("  - 若 CDC 控制台顯示 'PRESCALER CHANGE' → 可能有毛刺")
+    print("  - 綠色 [調試] 'GLITCH-FREE PATH' → 無毛刺")
+    print("  - 黃色 [調試] 'PRESCALER CHANGE' → 可能有毛刺")
     print()
 
     for i, freq in enumerate(TRANSITION_FREQUENCIES):
@@ -385,7 +394,7 @@ def test_pwm_rpm_mode(ser: serial.Serial) -> None:
         print_info("✅ 優秀！這表示所有切換都使用了相同的預分頻器")
     else:
         print_warning("頻率切換：觀察到毛刺")
-        print_info("ℹ️ 這可能是正常的（預分頻器改變），請確認 CDC 控制台的調試訊息")
+        print_info("ℹ️ 這可能是正常的（預分頻器改變），請查看上方的調試訊息")
 
     wait_for_user("接下來要測試佔空比切換（毛刺檢測），按 ENTER 繼續...")
 
