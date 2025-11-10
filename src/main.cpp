@@ -654,7 +654,12 @@ void setup() {
     USBSerial.println("[INFO] 正在初始化 BLE...");
     statusLED.update();  // Update LED during initialization
 
+    // 初始化 BLE 並設置設備名稱
     BLEDevice::init("BillCat_Fan_Control");
+    
+    // 重要：設置本地設備名稱（讓 GAP 層知道設備名稱）
+    esp_ble_gap_set_device_name("BillCat_Fan_Control");
+    
     pBLEServer = BLEDevice::createServer();
     pBLEServer->setCallbacks(new MyServerCallbacks());
 
@@ -679,16 +684,25 @@ void setup() {
 
     // 開始廣播 - 增強設置以確保被掃描到
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(SERVICE_UUID);
-    pAdvertising->setScanResponse(true);  // 啟用掃描回應（增加可發現性）
-    pAdvertising->setMinPreferred(0x06);  // 設置最小廣播間隔
-    pAdvertising->setMaxPreferred(0x12);  // 設置最大廣播間隔
+    
+    // 設置廣告時間間隔
+    pAdvertising->setMinPreferred(0x06);  // 設置最小廣播間隔（100ms）
+    pAdvertising->setMaxPreferred(0x12);  // 設置最大廣播間隔（300ms）
     pAdvertising->setAdvertisementType(ADV_TYPE_IND);  // 可連接和可掃描廣播
+    
+    // 重要：將服務 UUID 添加到廣告數據（放在廣告有效負載中）
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    
+    // 啟用掃描回應以增加廣告容量（設備名稱會自動添加到掃描回應中）
+    pAdvertising->setScanResponse(true);
     
     // 設置廣播功率（增強信號）
     BLEDevice::setPower(ESP_PWR_LVL_P9);  // 最大功率 (+9 dBm)
     
+    // 啟動廣告（設備名稱應該自動包含在掃描回應中）
     BLEDevice::startAdvertising();
+    
+    delay(500);  // 給 BLE 堆棧時間初始化
     statusLED.update();  // Update LED after advertising start
 
     // 創建 BLE 回應物件
