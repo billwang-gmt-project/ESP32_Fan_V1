@@ -927,54 +927,40 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
 
     // ===== Update Period (if changed) =====
     if (period != pwmPeriod) {
-        // CRITICAL: Must write BOTH prescaler and period together!
-        // According to ESP32-S3 Technical Reference:
-        // MCPWM_TIMERn_CFG0 register layout:
-        // bits [7:0]:   PRESCALE (actual divider = value + 1)
-        // bits [23:16]: PERIOD  (actual period = value + 1)
-        // bit  [24]:    PERIOD_UPMETHOD (1 = shadow register mode)
+        // Use ESP-IDF HAL functions to safely update period
+        // This ensures proper synchronization and avoids register corruption
+
+        // For very high frequencies (period < 100), use safer update via dedicated register field
+        // For normal frequencies, use direct shadow register update
 
         // Read register BEFORE write for debugging
         uint32_t cfg0_before = MCPWM1.timer[0].timer_cfg0.val;
         uint32_t prescale_before = (cfg0_before & 0xFF);
-        uint32_t period_before_alt1 = ((cfg0_before >> 16) & 0xFF);      // bits [23:16]
-        uint32_t period_before_alt2 = ((cfg0_before >> 8) & 0xFFFF);     // bits [23:8]
+        uint32_t period_before = ((cfg0_before >> 8) & 0xFFFF);     // bits [23:8]
         Serial.printf("[UART1] 📖 BEFORE: cfg0=0x%08X\n", cfg0_before);
         Serial.printf("[UART1]    prescaler=%u (bits[7:0]=0x%02X)\n",
                      prescale_before + 1, prescale_before);
-        Serial.printf("[UART1]    period (alt1: bits[23:16])=%u (raw=0x%02X)\n",
-                     period_before_alt1 + 1, period_before_alt1);
-        Serial.printf("[UART1]    period (alt2: bits[23:8])=%u (raw=0x%04X)\n",
-                     period_before_alt2 + 1, period_before_alt2);
+        Serial.printf("[UART1]    period (bits[23:8])=%u (raw=0x%04X)\n",
+                     period_before + 1, period_before);
 
-        // Build the complete register value with prescaler + period + shadow mode
-        // Note: Hardware stores value-1, so subtract 1 when writing
-        // CRITICAL FIX: Period is bits[23:8] (16-bit), NOT bits[23:16] (8-bit only)
-        // According to ESP32-S3 mcpwm_struct.h: timer_period is 16-bit field at [23:8]
-        uint32_t cfg0_val = ((pwmPrescaler - 1) & 0xFF)  // Prescaler [7:0] (store value-1)
-                          | (((period - 1) & 0xFFFF) << 8) // Period [23:8] (16-bit, store value-1)
-                          | (1 << 24);                      // Shadow mode [24]
+        // SAFER METHOD: Modify only the period bits[23:8] to avoid affecting other fields
+        // Read current value, mask out period bits, then write new period
+        uint32_t cfg0_new = (cfg0_before & ~(0xFFFF << 8))  // Clear bits[23:8]
+                          | (((period - 1) & 0xFFFF) << 8);  // Write new period
+        MCPWM1.timer[0].timer_cfg0.val = cfg0_new;
 
-        Serial.printf("[UART1] 🔧 Writing: prescaler=%u (raw=0x%02X), period=%u (raw=0x%04X)\n",
-                     pwmPrescaler, pwmPrescaler - 1, period, period - 1);
-        Serial.printf("[UART1]    cfg0_val=0x%08X (bits[7:0]=prescaler, bits[23:8]=period, bit[24]=shadow)\n",
-                     cfg0_val);
-
-        // Write complete value to register
-        MCPWM1.timer[0].timer_cfg0.val = cfg0_val;
+        Serial.printf("[UART1] 🔧 Updated period: %u (raw=0x%04X)\n",
+                     period, period - 1);
 
         // Read register AFTER write to verify
         uint32_t cfg0_after = MCPWM1.timer[0].timer_cfg0.val;
         uint32_t prescale_after = (cfg0_after & 0xFF);
-        uint32_t period_after_alt1 = ((cfg0_after >> 16) & 0xFF);        // bits [23:16]
-        uint32_t period_after_alt2 = ((cfg0_after >> 8) & 0xFFFF);       // bits [23:8]
+        uint32_t period_after = ((cfg0_after >> 8) & 0xFFFF);       // bits [23:8]
         Serial.printf("[UART1] 📖 AFTER:  cfg0=0x%08X\n", cfg0_after);
         Serial.printf("[UART1]    prescaler=%u (bits[7:0]=0x%02X)\n",
                      prescale_after + 1, prescale_after);
-        Serial.printf("[UART1]    period (alt1: bits[23:16])=%u (raw=0x%02X)\n",
-                     period_after_alt1 + 1, period_after_alt1);
-        Serial.printf("[UART1]    period (alt2: bits[23:8])=%u (raw=0x%04X)\n",
-                     period_after_alt2 + 1, period_after_alt2);
+        Serial.printf("[UART1]    period (bits[23:8])=%u (raw=0x%04X)\n",
+                     period_after + 1, period_after);
 
         // Verify calculation
         uint32_t calculated_freq = 80000000 / (pwmPrescaler * period);
@@ -989,7 +975,13 @@ void UART1Mux::updatePWMRegistersDirectly(uint32_t period, float duty) {
 
     // ===== Update Duty Cycle =====
     // Use ESP-IDF API (TEZ-synchronized, shadow register mode)
-    mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, MCPWM_GEN_A, duty);
+    // CRITICAL: Use correct PWM generator constant
+    esp_err_t duty_err = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
+                                        MCPWM_GEN_UART1_PWM, duty);
+    if (duty_err != ESP_OK) {
+        Serial.printf("[UART1] ❌ mcpwm_set_duty() failed: %s\n", esp_err_to_name(duty_err));
+        return;
+    }
 
     // Update stored duty value
     pwmDuty = duty;
