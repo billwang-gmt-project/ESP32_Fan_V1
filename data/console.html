@@ -718,18 +718,17 @@
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
 
-            // 生成檔名，包含時間戳
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            // 使用簡單的預設檔名，讓使用者在儲存對話框中自訂
             a.href = url;
-            a.download = `commands_${timestamp}.txt`;
+            a.download = 'commands.txt';
 
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
 
-            addConsoleLine('✓ 命令已儲存到檔案: ' + a.download, 'success');
-            console.log('[DEBUG] 命令已儲存到檔案:', a.download);
+            addConsoleLine('✓ 命令已儲存到檔案', 'success');
+            console.log('[DEBUG] 命令已儲存到檔案');
         }
 
         // 從檔案載入命令
