@@ -11,17 +11,20 @@
             box-sizing: border-box;
         }
 
-        body {
+        html, body {
+            width: 100%;
+            height: 100%;
             font-family: 'Courier New', monospace;
             background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
             color: #e0e0e0;
-            min-height: 100vh;
-            padding: 20px;
         }
 
         .page-wrapper {
-            max-width: 1000px;
-            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            padding: 20px;
         }
 
         .header {
@@ -30,7 +33,9 @@
             border-radius: 10px 10px 0 0;
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: none;
             margin-bottom: 0;
+            flex-shrink: 0;
         }
 
         .header h1 {
@@ -81,11 +86,12 @@
         .console-container {
             display: flex;
             flex-direction: column;
-            height: calc(100vh - 200px);
+            flex: 1;
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 0 0 10px 10px;
             overflow: hidden;
+            min-height: 300px;
         }
 
         .console-output {
@@ -127,12 +133,14 @@
             padding: 10px;
             background: rgba(0, 0, 0, 0.5);
             border-top: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
         }
 
         .console-prompt {
             color: #00ff88;
             font-weight: bold;
             min-width: 20px;
+            flex-shrink: 0;
         }
 
         .console-input {
@@ -179,6 +187,7 @@
             cursor: pointer;
             font-size: 12px;
             transition: all 0.3s ease;
+            flex-shrink: 0;
         }
 
         .help-button:hover {
@@ -190,6 +199,7 @@
             display: flex;
             gap: 10px;
             margin-top: 20px;
+            flex-shrink: 0;
         }
 
         .nav-link {
@@ -351,7 +361,7 @@
 
             <h3 style="color: #88ccff; margin-top: 15px;">馬達控制命令</h3>
             <div class="command-help">
-                <code>SET PWM <freq> <duty></code>
+                <code>SET PWM &lt;freq&gt; &lt;duty&gt;</code>
                 <p>設定 PWM 頻率 (Hz) 和佔空比 (%)</p>
             </div>
             <div class="command-help">
@@ -402,21 +412,26 @@
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws`;
 
+            console.log('[DEBUG] 正在連接到 WebSocket:', wsUrl);
+
             ws = new WebSocket(wsUrl);
 
             ws.addEventListener('open', function(event) {
+                console.log('[DEBUG] WebSocket 已連接');
                 updateStatus(true);
                 addConsoleLine('✓ 已連接到設備', 'response');
                 document.getElementById('commandInput').focus();
             });
 
             ws.addEventListener('message', function(event) {
+                console.log('[DEBUG] 收到消息:', event.data.substring(0, 100));
+
                 // 過濾掉自動廣播的 JSON 狀態消息
                 const message = event.data.trim();
 
                 // 跳過 JSON 格式的狀態廣播（以 { 開頭）
                 if (message.startsWith('{') && message.includes('"type":"status"')) {
-                    // 靜默處理狀態廣播，不顯示在控制台中
+                    console.log('[DEBUG] 過濾掉狀態廣播');
                     return;
                 }
 
@@ -427,10 +442,12 @@
             });
 
             ws.addEventListener('error', function(event) {
+                console.log('[DEBUG] WebSocket 錯誤:', event);
                 addConsoleLine('✗ WebSocket 錯誤', 'error');
             });
 
             ws.addEventListener('close', function(event) {
+                console.log('[DEBUG] WebSocket 已關閉');
                 updateStatus(false);
                 addConsoleLine('✗ 已斷開連接，嘗試重新連接...', 'warning');
                 setTimeout(connectWebSocket, 3000);
@@ -496,6 +513,8 @@
             if (command.length === 0) {
                 return;
             }
+
+            console.log('[DEBUG] 發送命令:', command);
 
             // 添加到歷史記錄
             commandHistory.push(command);
