@@ -96,13 +96,18 @@ async def test_bleak_with_retry(retries: int = 3):
             await asyncio.sleep(1)
             
             print("正在掃描設備...", flush=True)
-            devices = await BleakScanner.discover(timeout=5, return_adv=True)
+            # 注意: bleak 1.1.1 不支持 return_adv=True
+            devices = await BleakScanner.discover(timeout=5)
             
             if devices:
                 print(f"✅ 掃描成功！找到 {len(devices)} 個設備：")
-                for device, adv in devices.items():
-                    if device.name:
-                        print(f"  - {device.name} ({device.address})")
+                for device in devices:
+                    name = device.name if hasattr(device, 'name') else None
+                    addr = device.address if hasattr(device, 'address') else None
+                    if name and addr:
+                        print(f"  - {name} ({addr})")
+                    elif addr:
+                        print(f"  - (未命名) ({addr})")
                 return True
             else:
                 print("⚠️  掃描成功但未找到設備")

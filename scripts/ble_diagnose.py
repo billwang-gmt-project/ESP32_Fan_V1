@@ -67,7 +67,8 @@ async def test_ble_scan():
         from bleak import BleakScanner
         
         print("正在掃描 BLE 設備 (5 秒超時)...")
-        devices = await BleakScanner.discover(timeout=5, return_adv=True)
+        # 注意: bleak 1.1.1 不支持 return_adv=True
+        devices = await BleakScanner.discover(timeout=5)
         
         if not devices:
             print_warn("掃描成功但未發現任何設備")
@@ -78,41 +79,18 @@ async def test_ble_scan():
         billcat_found = False
         for device in devices:
             try:
-                # 處理不同的 Bleak 版本返回格式
-                name = None
-                address = None
-                
-                # Bleak 0.20+ 格式: (BLEDevice, AdvertisementData) 元組
-                if isinstance(device, tuple) and len(device) == 2:
-                    device_obj, adv_data = device
-                    name = device_obj.name
-                    address = device_obj.address
-                    
-                    # 如果 name 為空，嘗試從廣告數據中提取
-                    if not name and hasattr(adv_data, 'local_name'):
-                        name = adv_data.local_name
-                
-                # Bleak < 0.20 格式: BLEDevice 對象
-                elif hasattr(device, 'name') and hasattr(device, 'address'):
-                    name = device.name
-                    address = device.address
-                
-                # 回退方案
-                if not name:
-                    name = "(無名稱)"
-                if not address:
-                    address = ""
+                # bleak 1.1.1: 直接返回 BLEDevice 對象
+                name = device.name if hasattr(device, 'name') else None
+                address = device.address if hasattr(device, 'address') else None
                 
                 # 檢查是否找到目標設備
                 if name and "BillCat" in name:
                     billcat_found = True
-                    print(f"  * {name} ({address}) <-- BillCat_Fan_Control 🎯")
-                elif name != "(無名稱)" and address:
+                    print(f"  * {name} ({address}) <-- BillCat_Fan_Control")
+                elif name:
                     print(f"  - {name} ({address})")
-                else:
-                    # 只顯示沒有名稱但有地址的設備
-                    if address:
-                        print(f"  - 未命名 ({address})")
+                elif address:
+                    print(f"  - (未命名) ({address})")
             except Exception as e:
                 print(f"  ? 解析失敗: {e}")
         
