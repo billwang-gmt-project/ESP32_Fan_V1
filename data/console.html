@@ -431,7 +431,10 @@
                         <button class="clear-button" onclick="sendCommand()" title="發送命令">📤 發送</button>
                         <button class="clear-button" onclick="clearCommandBox()" title="清除命令框">🗑️ 清除</button>
                         <button class="clear-button" onclick="clearConsoleOutput()" title="清除輸出">✕ 清出力</button>
+                        <button class="clear-button" onclick="saveCommandToFile()" title="儲存命令到檔案">💾 儲存</button>
+                        <button class="clear-button" onclick="loadCommandFromFile()" title="從檔案載入命令">📂 載入</button>
                     </div>
+                    <input type="file" id="fileInput" accept=".txt,.cmd" style="display: none;" onchange="handleFileLoad(event)">
                 </div>
                 <div class="command-history" id="commandHistory">
                     <div class="history-label">📜 命令歷史</div>
@@ -698,6 +701,70 @@
             messageCount = 0;
             document.getElementById('messageCount').textContent = '0';
             console.log('[DEBUG] 已清除輸出框');
+        }
+
+        // 儲存命令到檔案
+        function saveCommandToFile() {
+            const input = document.getElementById('commandInput');
+            const content = input.value;
+
+            if (content.trim().length === 0) {
+                addConsoleLine('⚠️ 命令框為空，無內容可儲存', 'error');
+                return;
+            }
+
+            // 創建 Blob 並下載
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+
+            // 生成檔名，包含時間戳
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            a.href = url;
+            a.download = `commands_${timestamp}.txt`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            addConsoleLine('✓ 命令已儲存到檔案: ' + a.download, 'success');
+            console.log('[DEBUG] 命令已儲存到檔案:', a.download);
+        }
+
+        // 從檔案載入命令
+        function loadCommandFromFile() {
+            const fileInput = document.getElementById('fileInput');
+            fileInput.click();
+        }
+
+        // 處理檔案載入
+        function handleFileLoad(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                const input = document.getElementById('commandInput');
+                input.value = content;
+                input.focus();
+
+                addConsoleLine('✓ 已從檔案載入命令: ' + file.name, 'success');
+                console.log('[DEBUG] 已從檔案載入命令:', file.name, '長度:', content.length);
+            };
+
+            reader.onerror = function() {
+                addConsoleLine('✗ 讀取檔案失敗', 'error');
+                console.error('[DEBUG] 讀取檔案失敗');
+            };
+
+            reader.readAsText(file);
+
+            // 重置 file input，允許重複載入同一檔案
+            event.target.value = '';
         }
 
         // 更新命令歷史顯示（已隱藏，只保留內部邏輯以供未來使用）
