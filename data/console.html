@@ -164,7 +164,6 @@
             flex-shrink: 0;
             background: rgba(0, 0, 0, 0.5);
             border-top: 1px solid rgba(255, 255, 255, 0.1);
-            height: 150px;
         }
 
         .console-input-area {
@@ -196,14 +195,19 @@
             overflow-y: auto;
             line-height: 1.4;
             padding: 5px;
-            min-height: 100px;
+            min-height: 50px;
+            max-height: 80px;
         }
 
         .console-buttons {
             display: flex;
             gap: 5px;
-            flex-direction: column;
+            flex-direction: row;
             flex-shrink: 0;
+            flex-wrap: wrap;
+            padding: 0 10px 10px 10px;
+            align-items: center;
+            justify-content: flex-start;
         }
 
         .clear-button {
@@ -427,14 +431,14 @@
                                 autocomplete="off"
                                 rows="5"></textarea>
                     </div>
-                    <div class="console-buttons">
-                        <button class="clear-button" onclick="sendCommand()" title="發送命令">📤 發送</button>
-                        <button class="clear-button" onclick="clearCommandBox()" title="清除命令框">🗑️ 清除</button>
-                        <button class="clear-button" onclick="clearConsoleOutput()" title="清除輸出">✕ 清出力</button>
-                        <button class="clear-button" onclick="saveCommandToFile()" title="儲存命令到檔案">💾 儲存</button>
-                        <button class="clear-button" onclick="loadCommandFromFile()" title="從檔案載入命令">📂 載入</button>
-                    </div>
                     <input type="file" id="fileInput" accept=".txt,.cmd" style="display: none;" onchange="handleFileLoad(event)">
+                </div>
+                <div class="console-buttons">
+                    <button class="clear-button" onclick="sendCommand()" title="發送命令">📤 發送</button>
+                    <button class="clear-button" onclick="clearCommandBox()" title="清除命令框">🗑️ 清除</button>
+                    <button class="clear-button" onclick="clearConsoleOutput()" title="清除輸出">✕ 清出力</button>
+                    <button class="clear-button" onclick="saveCommandToFile()" title="儲存命令到檔案">💾 儲存</button>
+                    <button class="clear-button" onclick="loadCommandFromFile()" title="從檔案載入命令">📂 載入</button>
                 </div>
                 <div class="command-history" id="commandHistory">
                     <div class="history-label">📜 命令歷史</div>
@@ -704,7 +708,7 @@
         }
 
         // 儲存命令到檔案
-        function saveCommandToFile() {
+        async function saveCommandToFile() {
             const input = document.getElementById('commandInput');
             const content = input.value;
 
@@ -713,22 +717,57 @@
                 return;
             }
 
-            // 創建 Blob 並下載
+            // 首先嘗試使用現代 File System Access API（Chrome/Edge 支援）
+            if (window.showSaveFilePicker) {
+                try {
+                    console.log('[DEBUG] 嘗試使用 showSaveFilePicker API');
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: `commands_${new Date().toISOString().slice(0,10)}.txt`,
+                        types: [
+                            {
+                                description: '文本文件',
+                                accept: { 'text/plain': ['.txt'] }
+                            }
+                        ]
+                    });
+
+                    const writable = await handle.createWritable();
+                    await writable.write(content);
+                    await writable.close();
+
+                    addConsoleLine('✓ 命令已儲存到檔案', 'success');
+                    console.log('[DEBUG] 命令已儲存到檔案（使用 File System API）');
+                    return;
+                } catch (e) {
+                    if (e.name === 'AbortError') {
+                        console.log('[DEBUG] 使用者取消儲存');
+                        addConsoleLine('⚠️ 儲存已取消', 'warning');
+                        return;
+                    }
+                    console.error('[DEBUG] File System API 錯誤:', e);
+                }
+            }
+
+            // 備用方法：傳統下載（顯示下載對話框）
+            console.log('[DEBUG] 使用備用下載方法');
+            const timestamp = new Date().toISOString().slice(0,19).replace(/:/g, '-');
             const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
 
-            // 使用簡單的預設檔名，讓使用者在儲存對話框中自訂
             a.href = url;
-            a.download = 'commands.txt';
+            a.download = `commands_${timestamp}.txt`;
 
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
+            
+            setTimeout(() => {
+                window.URL.revokeObjectURL(url);
+            }, 100);
 
-            addConsoleLine('✓ 命令已儲存到檔案', 'success');
-            console.log('[DEBUG] 命令已儲存到檔案');
+            addConsoleLine('✓ 命令已儲存到下載資料夾', 'success');
+            console.log('[DEBUG] 命令已儲存到檔案（備用下載方法）');
         }
 
         // 從檔案載入命令
