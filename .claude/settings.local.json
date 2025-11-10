@@ -58,7 +58,8 @@
       "Bash(npx:*)",
       "Bash(explorer \"D:\\github\\ESP32\\fw\\ESP32_Fan_V1\")",
       "Bash(start \"D:\\github\\ESP32\\fw\\ESP32_Fan_V1\")",
-      "Bash(git update-index:*)"
+      "Bash(git update-index:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

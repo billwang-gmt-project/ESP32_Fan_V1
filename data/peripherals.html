@@ -454,11 +454,15 @@
                     <div id="uart1PwmControls" style="display: none;">
                         <div class="control-group">
                             <label class="control-label">PWM Frequency (Hz): <span id="uart1FreqDisplay">1000</span></label>
-                            <input type="range" id="uart1Freq" class="slider" min="1" max="500000" value="1000" step="1" oninput="document.getElementById('uart1FreqDisplay').textContent = this.value" onchange="sendUART1PWMViaWebSocket()">
+                            <input type="range" id="uart1Freq" class="slider" min="1" max="500000" value="1000" step="1"
+                                oninput="isSliderActive=true; document.getElementById('uart1FreqDisplay').textContent = this.value"
+                                onchange="sendUART1FreqOnly(); isSliderActive=false">
                         </div>
                         <div class="control-group">
                             <label class="control-label">PWM Duty (%): <span id="uart1DutyDisplay">50.0</span></label>
-                            <input type="range" id="uart1Duty" class="slider" min="0" max="100" value="50" step="0.1" oninput="document.getElementById('uart1DutyDisplay').textContent = parseFloat(this.value).toFixed(1)" onchange="sendUART1PWMViaWebSocket()">
+                            <input type="range" id="uart1Duty" class="slider" min="0" max="100" value="50" step="0.1"
+                                oninput="isSliderActive=true; document.getElementById('uart1DutyDisplay').textContent = parseFloat(this.value).toFixed(1)"
+                                onchange="sendUART1DutyOnly(); isSliderActive=false">
                         </div>
                         <div class="control-group">
                             <label class="control-label">
@@ -653,8 +657,7 @@
         let updateInterval = null;
         let userChangingMode = false;  // Flag to prevent auto-sync during user interaction
         let ws = null;  // WebSocket connection for real-time PWM sync
-        let isSliderBeingDragged = false;  // Track if user is dragging UART1 PWM sliders
-
+        let isSliderActive = false;  // Track if user is dragging UART1 sliders
         // Initialize WebSocket for real-time sync with other pages
         function initWebSocket() {
             ws = new WebSocket('ws://' + window.location.hostname + '/ws');
@@ -663,16 +666,19 @@
                 try {
                     const data = JSON.parse(event.data);
                     if (data.type === 'status') {
-                        // Update UART1 PWM display with current values from server
-                        // But NOT while user is dragging the sliders
-                        if (data.uart1 && !isSliderBeingDragged) {
+                        // Update UART1 PWM display - only when user is not dragging
+                        if (data.uart1) {
                             if (data.uart1.pwm_freq !== undefined) {
-                                document.getElementById('uart1Freq').value = data.uart1.pwm_freq;
-                                document.getElementById('uart1FreqDisplay').textContent = data.uart1.pwm_freq;
+                                // Only update when slider not active to prevent interference
+                                if (!isSliderActive) {
+                                    document.getElementById('uart1FreqDisplay').textContent = data.uart1.pwm_freq;
+                                }
                             }
                             if (data.uart1.pwm_duty !== undefined) {
-                                document.getElementById('uart1Duty').value = data.uart1.pwm_duty;
-                                document.getElementById('uart1DutyDisplay').textContent = data.uart1.pwm_duty.toFixed(1);
+                                // Only update when slider not active to prevent interference
+                                if (!isSliderActive) {
+                                    document.getElementById('uart1DutyDisplay').textContent = data.uart1.pwm_duty.toFixed(1);
+                                }
                             }
                         }
                     }
@@ -694,17 +700,29 @@
             startAutoUpdate();
         });
 
-        function sendUART1PWMViaWebSocket() {
-            // Only send when slider is released (onchange event)
+        function sendUART1FreqOnly() {
+            // Send ONLY frequency when frequency slider is released
             const freq = parseInt(document.getElementById('uart1Freq').value);
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
+            }
+        }
+
+        function sendUART1DutyOnly() {
+            // Send ONLY duty when duty slider is released
             const duty = parseFloat(document.getElementById('uart1Duty').value);
 
             if (ws && ws.readyState === WebSocket.OPEN) {
-                // Send frequency
-                ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
-                // Send duty
                 ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
             }
+        }
+
+        function sendUART1PWMViaWebSocket() {
+            // Legacy function - kept for compatibility
+            // (no longer used by updated HTML)
+            sendUART1FreqOnly();
+            sendUART1DutyOnly();
         }
 
         function initializeControls() {
@@ -816,12 +834,16 @@
                     document.getElementById('uart1RpmFreq').textContent = data.uart1.rpm_freq.toFixed(2) + ' Hz';
                 }
                 if (data.uart1.pwm_freq !== undefined) {
-                    document.getElementById('uart1Freq').value = data.uart1.pwm_freq;
-                    document.getElementById('uart1FreqDisplay').textContent = data.uart1.pwm_freq;
+                    // Only update when user is not actively dragging
+                    if (!isSliderActive) {
+                        document.getElementById('uart1FreqDisplay').textContent = data.uart1.pwm_freq;
+                    }
                 }
                 if (data.uart1.pwm_duty !== undefined) {
-                    document.getElementById('uart1Duty').value = data.uart1.pwm_duty;
-                    document.getElementById('uart1DutyDisplay').textContent = data.uart1.pwm_duty.toFixed(1);
+                    // Only update when user is not actively dragging
+                    if (!isSliderActive) {
+                        document.getElementById('uart1DutyDisplay').textContent = data.uart1.pwm_duty.toFixed(1);
+                    }
                 }
                 if (data.uart1.pwm_enabled !== undefined) {
                     document.getElementById('uart1PwmEnable').checked = data.uart1.pwm_enabled;

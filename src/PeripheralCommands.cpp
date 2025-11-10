@@ -1,5 +1,6 @@
 #include "CommandParser.h"
 #include "PeripheralManager.h"
+#include "soc/mcpwm_struct.h"
 
 // External reference to peripheral manager (defined in main.cpp)
 extern PeripheralManager peripheralManager;
@@ -109,7 +110,54 @@ void CommandParser::handleUART1PWM(const String& cmd, ICommandResponse* response
     }
 
     // Use atomic setPWMFrequencyAndDuty() to update both parameters with single pulse
+    response->printf("[DEBUG] handleUART1PWM: Calling setPWMFrequencyAndDuty(%u Hz, %.1f%%)\n", freq, duty);
+
+    // 讀取register BEFORE
+    uint32_t cfg0_before = MCPWM1.timer[0].timer_cfg0.val;
+    uint32_t prescale_before = cfg0_before & 0xFF;
+    uint32_t period_before_alt1 = (cfg0_before >> 16) & 0xFF;
+    uint32_t period_before_alt2 = (cfg0_before >> 8) & 0xFFFF;
+
     if (peripheralManager.getUART1().setPWMFrequencyAndDuty(freq, duty)) {
+        response->println("[DEBUG] setPWMFrequencyAndDuty() returned TRUE");
+
+        // 讀取register AFTER
+        uint32_t cfg0_after = MCPWM1.timer[0].timer_cfg0.val;
+        uint32_t prescale_after = cfg0_after & 0xFF;
+        uint32_t period_after_alt1 = (cfg0_after >> 16) & 0xFF;
+        uint32_t period_after_alt2 = (cfg0_after >> 8) & 0xFFFF;
+
+        response->printf("[REG] BEFORE: cfg0=0x%08X, prescale=%u, period_alt1=%u, period_alt2=%u\n",
+                        cfg0_before, prescale_before+1, period_before_alt1+1, period_before_alt2+1);
+        response->printf("[REG] AFTER:  cfg0=0x%08X\n", cfg0_after);
+        response->printf("[REG]   bits[7:0] (prescale): 0x%02X = %u (actual: %u)\n",
+                        prescale_after, prescale_after, prescale_after+1);
+        response->printf("[REG]   bits[15:8]: 0x%02X = %u\n",
+                        (cfg0_after >> 8) & 0xFF, (cfg0_after >> 8) & 0xFF);
+        response->printf("[REG]   bits[23:16]: 0x%02X = %u\n",
+                        (cfg0_after >> 16) & 0xFF, (cfg0_after >> 16) & 0xFF);
+        response->printf("[REG]   bits[23:8] (period_alt2): 0x%04X = %u (actual: %u)\n",
+                        period_after_alt2, period_after_alt2, period_after_alt2+1);
+        response->printf("[REG]   bits[31:24]: 0x%02X\n",
+                        (cfg0_after >> 24) & 0xFF);
+
+        // 計算期望的period
+        uint32_t expected_period = 80000000 / ((prescale_after+1) * freq);
+        response->printf("[CALC] Expected period for %u Hz (prescale=%u): %u\n",
+                        freq, prescale_after+1, expected_period);
+
+        // 嘗試反向工程: 實際period是多少?
+        uint32_t period_high_only = (cfg0_after >> 16) & 0xFF;
+        uint32_t period_reconstructed = period_high_only << 8;  // bits[23:16] << 8
+        uint32_t actual_freq_from_period_high = 80000000 / ((prescale_after+1) * period_reconstructed);
+        response->printf("[REVERSE] Using period=(bits[23:16]<<8)=%u, freq would be: %u Hz\n",
+                        period_reconstructed, actual_freq_from_period_high);
+
+        // 計算實際MCPWM時鐘
+        uint32_t actual_mcpwm_clk = freq * (prescale_after+1) * period_reconstructed;
+        response->printf("[CLOCK] If freq=%u and period=%u, MCPWM_CLK must be: %u Hz (%.1f MHz)\n",
+                        freq, period_reconstructed, actual_mcpwm_clk, actual_mcpwm_clk/1000000.0f);
+
         peripheralManager.getUART1().setPWMEnabled(enablePWM);
 
         // Get actual frequency (may differ from requested due to hardware limitations)

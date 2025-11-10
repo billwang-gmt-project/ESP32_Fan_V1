@@ -1314,7 +1314,9 @@ String WebServerManager::generateIndexHTML() {
 
             <div class="control-group">
                 <label for="dutySlider">PWM Duty Cycle: <span id="dutyDisplay">0%</span></label>
-                <input type="range" id="dutySlider" min="0" max="100" value="0" step="0.1" oninput="updateDutyDisplay()" onchange="setDuty()">
+                <input type="range" id="dutySlider" min="0" max="100" value="0" step="0.1"
+                    oninput="isSliderActive=true; updateDutyDisplay()"
+                    onchange="setDuty(); isSliderActive=false">
             </div>
 
             <button class="btn-danger" onclick="emergencyStop()">⛔ EMERGENCY STOP</button>
@@ -1330,7 +1332,7 @@ String WebServerManager::generateIndexHTML() {
     <script>
         let ws;
         let reconnectInterval;
-        let isSliderBeingDragged = false;  // Track if user is currently dragging slider
+        let isSliderActive = false;  // Track if user is currently interacting with slider
 
         function connectWebSocket() {
             ws = new WebSocket('ws://' + window.location.hostname + '/ws');
@@ -1376,17 +1378,14 @@ String WebServerManager::generateIndexHTML() {
                     document.getElementById('rpmValue').textContent = Math.round(data.rpm);
                 }
                 if (data.freq !== undefined) {
+                    // 更新頻率顯示
                     document.getElementById('pwmFreq').textContent = data.freq + ' Hz';
-                    // 不要在拖動時更新頻率輸入框
-                    if (!isSliderBeingDragged) {
-                        document.getElementById('freqInput').value = data.freq;
-                    }
+                    // 但不更新輸入框值 - 保持用戶正在編輯的值
                 }
                 if (data.duty !== undefined) {
-                    document.getElementById('pwmDuty').textContent = data.duty.toFixed(1) + '%';
-                    // 不要在拖動時更新滑杆 - 這樣使用者體感才好
-                    if (!isSliderBeingDragged) {
-                        document.getElementById('dutySlider').value = data.duty;
+                    // 只在用戶未拖動時更新顯示
+                    if (!isSliderActive) {
+                        document.getElementById('pwmDuty').textContent = data.duty.toFixed(1) + '%';
                         document.getElementById('dutyDisplay').textContent = data.duty.toFixed(1) + '%';
                     }
                 }
@@ -1467,33 +1466,7 @@ String WebServerManager::generateIndexHTML() {
             document.getElementById('dutyDisplay').textContent = duty.toFixed(1) + '%';
         }
 
-        // Setup slider drag tracking
-        const dutySlider = document.getElementById('dutySlider');
-        const freqInput = document.getElementById('freqInput');
-
-        // Duty slider drag detection
-        dutySlider.addEventListener('pointerdown', function() {
-            isSliderBeingDragged = true;
-        });
-        dutySlider.addEventListener('pointerup', function() {
-            isSliderBeingDragged = false;
-        });
-        dutySlider.addEventListener('touchstart', function() {
-            isSliderBeingDragged = true;
-        });
-        dutySlider.addEventListener('touchend', function() {
-            isSliderBeingDragged = false;
-        });
-
-        // Frequency input focus/blur detection
-        freqInput.addEventListener('focus', function() {
-            isSliderBeingDragged = true;
-        });
-        freqInput.addEventListener('blur', function() {
-            isSliderBeingDragged = false;
-        });
-
-        // Initialize
+        // Initialize WebSocket and display
         connectWebSocket();
         updateDutyDisplay();
     </script>
