@@ -53,7 +53,8 @@
       "Bash(timeout 45 python:*)",
       "Bash(done)",
       "Bash(echo:*)",
-      "mcp__desktop-commander__list_directory"
+      "mcp__desktop-commander__list_directory",
+      "Bash(git remote:*)"
     ],
     "deny": [],
     "ask": []
