@@ -652,6 +652,37 @@
     <script>
         let updateInterval = null;
         let userChangingMode = false;  // Flag to prevent auto-sync during user interaction
+        let ws = null;  // WebSocket connection for real-time PWM sync
+        let isEditingUART1Freq = false;  // Track if user is editing freq
+        let isEditingUART1Duty = false;  // Track if user is editing duty
+        let uart1FreqTimeout = null;
+        let uart1DutyTimeout = null;
+
+        // Initialize WebSocket for real-time sync with other pages
+        function initWebSocket() {
+            ws = new WebSocket('ws://' + window.location.hostname + '/ws');
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'status') {
+                        // Only update UART1 PWM if not currently editing
+                        if (data.uart1 && !isEditingUART1Freq && !isEditingUART1Duty) {
+                            if (data.uart1.pwm_freq !== undefined) {
+                                document.getElementById('uart1Freq').value = data.uart1.pwm_freq;
+                                document.getElementById('uart1FreqDisplay').textContent = data.uart1.pwm_freq;
+                            }
+                            if (data.uart1.pwm_duty !== undefined) {
+                                document.getElementById('uart1Duty').value = data.uart1.pwm_duty;
+                                document.getElementById('uart1DutyDisplay').textContent = data.uart1.pwm_duty.toFixed(1);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('WebSocket message parse error:', e);
+                }
+            };
+        }
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -660,17 +691,53 @@
             updateUART1ModeDisplay('PWM');
 
             initializeControls();
+            initWebSocket();  // Initialize WebSocket for real-time sync
             fetchAllStatus();
             startAutoUpdate();
         });
 
         function initializeControls() {
-            // UART1 sliders
+            // UART1 sliders - send commands via WebSocket for real-time sync
             document.getElementById('uart1Freq').addEventListener('input', function() {
-                document.getElementById('uart1FreqDisplay').textContent = this.value;
+                const freq = parseInt(this.value);
+                document.getElementById('uart1FreqDisplay').textContent = freq;
+
+                // Set editing flag and send command
+                isEditingUART1Freq = true;
+                clearTimeout(uart1FreqTimeout);
+
+                // Send via WebSocket with debouncing
+                uart1FreqTimeout = setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
+                    }
+                }, 100);
+
+                // Reset editing flag after timeout
+                setTimeout(() => {
+                    isEditingUART1Freq = false;
+                }, 250);
             });
+
             document.getElementById('uart1Duty').addEventListener('input', function() {
-                document.getElementById('uart1DutyDisplay').textContent = parseFloat(this.value).toFixed(1);
+                const duty = parseFloat(this.value);
+                document.getElementById('uart1DutyDisplay').textContent = duty.toFixed(1);
+
+                // Set editing flag and send command
+                isEditingUART1Duty = true;
+                clearTimeout(uart1DutyTimeout);
+
+                // Send via WebSocket with debouncing
+                uart1DutyTimeout = setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
+                    }
+                }, 100);
+
+                // Reset editing flag after timeout
+                setTimeout(() => {
+                    isEditingUART1Duty = false;
+                }, 250);
             });
 
             // Buzzer sliders

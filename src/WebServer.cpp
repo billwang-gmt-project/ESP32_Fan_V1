@@ -213,28 +213,29 @@ void WebServerManager::handleWebSocketMessage(void *arg, uint8_t *data, size_t l
                 uint32_t freq = doc["value"];
                 if (pPeripheralManager) {
                     pPeripheralManager->getUART1().setPWMFrequency(freq);
-                    broadcastStatus();
+                    // 不立即廣播 - 讓定期廣播處理 (避免與用戶輸入競爭)
                 }
             }
             else if (strcmp(cmd, "set_duty") == 0) {
                 float duty = doc["value"];
                 if (pPeripheralManager) {
                     pPeripheralManager->getUART1().setPWMDuty(duty);
-                    broadcastStatus();
+                    // 不立即廣播 - 讓定期廣播處理 (避免與用戶輸入競爭)
                 }
             }
             else if (strcmp(cmd, "stop") == 0) {
                 // Simple stop: set duty to 0% (emergency stop removed in v3.0)
                 if (pPeripheralManager) {
                     pPeripheralManager->getUART1().setPWMDuty(0.0);
-                    broadcastStatus();
+                    // 不立即廣播 - 讓定期廣播處理
                 }
             }
             else if (strcmp(cmd, "clear_error") == 0) {
                 // No-op: emergency stop feature removed in v3.0
-                broadcastStatus();
+                // 不立即廣播 - 讓定期廣播處理
             }
             else if (strcmp(cmd, "get_status") == 0) {
+                // 只有 get_status 命令才立即廣播
                 broadcastStatus();
             }
         } else {
@@ -1307,14 +1308,13 @@ String WebServerManager::generateIndexHTML() {
         <div class="control-panel">
             <div class="control-group">
                 <label for="freqInput">PWM Frequency (Hz)</label>
-                <input type="number" id="freqInput" min="10" max="500000" value="15000">
+                <input type="number" id="freqInput" min="10" max="500000" value="15000" onchange="setFrequency()">
                 <button class="btn-primary" onclick="setFrequency()">Set Frequency</button>
             </div>
 
             <div class="control-group">
                 <label for="dutySlider">PWM Duty Cycle: <span id="dutyDisplay">0%</span></label>
-                <input type="range" id="dutySlider" min="0" max="100" value="0" step="0.1" oninput="updateDutyDisplay()">
-                <button class="btn-primary" onclick="setDuty()">Set Duty Cycle</button>
+                <input type="range" id="dutySlider" min="0" max="100" value="0" step="0.1" oninput="updateDutyDisplay(); setDuty()">
             </div>
 
             <button class="btn-danger" onclick="emergencyStop()">⛔ EMERGENCY STOP</button>
@@ -1330,6 +1330,12 @@ String WebServerManager::generateIndexHTML() {
     <script>
         let ws;
         let reconnectInterval;
+        let dutySliderTimeout;  // 防止廣播重置正在編輯的滑杆值
+        let freqInputTimeout;   // 防止廣播重置正在編輯的頻率值
+        let isEditingDuty = false;  // 用戶正在編輯 duty 滑杆
+        let isEditingFreq = false;  // 用戶正在編輯 frequency 輸入框
+        let dutySendTimeout;    // 防抖計時器（避免快速拖動時發送過多命令）
+        let freqSendTimeout;    // 防抖計時器
 
         function connectWebSocket() {
             ws = new WebSocket('ws://' + window.location.hostname + '/ws');
@@ -1376,12 +1382,18 @@ String WebServerManager::generateIndexHTML() {
                 }
                 if (data.freq !== undefined) {
                     document.getElementById('pwmFreq').textContent = data.freq + ' Hz';
-                    document.getElementById('freqInput').value = data.freq;
+                    // 只在用戶沒有正在編輯時更新頻率輸入框
+                    if (!isEditingFreq) {
+                        document.getElementById('freqInput').value = data.freq;
+                    }
                 }
                 if (data.duty !== undefined) {
                     document.getElementById('pwmDuty').textContent = data.duty.toFixed(1) + '%';
-                    document.getElementById('dutySlider').value = data.duty;
-                    document.getElementById('dutyDisplay').textContent = data.duty.toFixed(1) + '%';
+                    // 只在用戶沒有正在編輯時更新滑杆值
+                    if (!isEditingDuty) {
+                        document.getElementById('dutySlider').value = data.duty;
+                        document.getElementById('dutyDisplay').textContent = data.duty.toFixed(1) + '%';
+                    }
                 }
                 if (data.raw_rpm !== undefined) {
                     const inputFreq = data.raw_rpm / 60; // Approximate
@@ -1409,7 +1421,26 @@ String WebServerManager::generateIndexHTML() {
         function setFrequency() {
             const freq = parseInt(document.getElementById('freqInput').value);
             if (freq >= 10 && freq <= 500000) {
-                ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
+                // 設置正在編輯標誌，防止廣播重置值
+                isEditingFreq = true;
+
+                // 清除之前的防抖計時器
+                clearTimeout(freqSendTimeout);
+
+                // 防抖：100ms 內不會發送多個命令
+                freqSendTimeout = setTimeout(function() {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
+                    }
+                }, 100);
+
+                // 清除之前的編輯標誌計時器
+                clearTimeout(freqInputTimeout);
+
+                // 250ms 後允許廣播重置值（因為伺服器不再立即廣播）
+                freqInputTimeout = setTimeout(function() {
+                    isEditingFreq = false;
+                }, 250);
             } else {
                 alert('Frequency must be between 10 and 500000 Hz');
             }
@@ -1417,7 +1448,28 @@ String WebServerManager::generateIndexHTML() {
 
         function setDuty() {
             const duty = parseFloat(document.getElementById('dutySlider').value);
-            ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
+
+            // 設置正在編輯標誌，防止廣播重置值
+            isEditingDuty = true;
+
+            // 清除之前的防抖計時器
+            clearTimeout(dutySendTimeout);
+
+            // 防抖：100ms 內不會發送多個命令（避免快速拖動時發送過多）
+            dutySendTimeout = setTimeout(function() {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
+                }
+            }, 100);
+
+            // 清除之前的編輯標誌計時器
+            clearTimeout(dutySliderTimeout);
+
+            // 250ms 後允許廣播重置值（因為伺服器不再立即廣播）
+            // 這個延遲只是為了讓用戶感覺更流暢，不會立即被廣播重置
+            dutySliderTimeout = setTimeout(function() {
+                isEditingDuty = false;
+            }, 250);
         }
 
         function emergencyStop() {
