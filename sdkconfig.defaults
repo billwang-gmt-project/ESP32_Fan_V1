@@ -6,7 +6,20 @@ CONFIG_BT_ENABLED=y
 CONFIG_BLUEDROID_ENABLED=y
 CONFIG_BT_BLE_ENABLED=y
 
-# USB configuration (handled by platformio.ini build flags)
-# CONFIG_TINYUSB_HID_BUFSIZE=128
-# CONFIG_ARDUINO_USB_MODE=1
-# CONFIG_ARDUINO_USB_CDC_ON_BOOT=1
+# USB configuration (handled by sdkconfig.defaults / IDF config)
+# Increase TinyUSB HID buffer size to support larger HID reports
+CONFIG_TINYUSB_HID_BUFSIZE=128
+# Set Arduino USB mode and CDC-on-boot via sdkconfig so framework headers
+# and sdkconfig.h remain the single source of truth for these features.
+# Use 0 to disable, 1 to enable.
+CONFIG_ARDUINO_USB_MODE=0
+CONFIG_ARDUINO_USB_CDC_ON_BOOT=0
+
+# TinyUSB's endpoint buffer size macro (CFG_TUD_HID_EP_BUFSIZE) is a
+# TinyUSB compile-time macro. It isn't an IDF Kconfig option (CONFIG_*) so
+# it may not be picked up from sdkconfig.defaults by the build system. If
+# you still see HID endpoint buffer size issues, keep the following in
+# `platformio.ini` build_flags instead:
+#   -DCFG_TUD_HID_EP_BUFSIZE=128
+# You can try adding it here, but the safe approach is to use build_flags.
+#CFG_TUD_HID_EP_BUFSIZE=128
