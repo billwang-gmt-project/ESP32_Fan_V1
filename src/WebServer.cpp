@@ -173,7 +173,7 @@ void WebServerManager::handleWebSocketEvent(AsyncWebSocket *server,
 
         case WS_EVT_DATA:
             USBSerial.printf("[WS] 📨 WS_EVT_DATA 事件已觸發, 長度=%d, arg=%p\n", len, arg);
-            handleWebSocketMessage(arg, data, len);
+            handleWebSocketMessage(arg, data, len, client);
             break;
 
         case WS_EVT_PONG:
@@ -182,11 +182,11 @@ void WebServerManager::handleWebSocketEvent(AsyncWebSocket *server,
     }
 }
 
-void WebServerManager::handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+void WebServerManager::handleWebSocketMessage(void *arg, uint8_t *data, size_t len, AsyncWebSocketClient *client) {
     AwsFrameInfo *info = (AwsFrameInfo*)arg;
 
-    USBSerial.printf("[WS] handleWebSocketMessage 已調用: final=%d, index=%d, len=%d, opcode=%d\n",
-                 info->final, info->index, info->len, info->opcode);
+    USBSerial.printf("[WS] handleWebSocketMessage 已調用: final=%d, index=%d, info->len=%d, param_len=%d, opcode=%d\n",
+                 info->final, info->index, info->len, len, info->opcode);
     USBSerial.flush();
 
     if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
@@ -254,7 +254,7 @@ void WebServerManager::handleWebSocketMessage(void *arg, uint8_t *data, size_t l
             USBSerial.printf("[WS] 消息長度: %d\n", trimmed.length());
 
             // 取得客戶端 ID
-            uint32_t client_id = info->num;
+            uint32_t client_id = client ? client->id() : 0;
             USBSerial.printf("[WS] 客戶端 ID: %d\n", client_id);
 
             // 創建 WebSocket 響應對象

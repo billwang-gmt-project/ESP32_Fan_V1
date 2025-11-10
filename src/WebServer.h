@@ -131,7 +131,7 @@ private:
     /**
      * @brief Handle WebSocket message
      */
-    void handleWebSocketMessage(void *arg, uint8_t *data, size_t len);
+    void handleWebSocketMessage(void *arg, uint8_t *data, size_t len, AsyncWebSocketClient *client);
 
     /**
      * @brief Generate HTML page
