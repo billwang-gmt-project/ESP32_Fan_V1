@@ -678,9 +678,9 @@
                 }
             });
 
-            // 清空輸入框
-            input.value = '';
+            // 保留輸入框內容，不清空，只移動焦點到末尾
             input.focus();
+            input.setSelectionRange(input.value.length, input.value.length);
         }
 
         // 清除命令框
@@ -698,7 +698,6 @@
             messageCount = 0;
             document.getElementById('messageCount').textContent = '0';
             console.log('[DEBUG] 已清除輸出框');
-            addConsoleLine('✓ 已清除輸出', 'response');
         }
 
         // 更新命令歷史顯示（已隱藏，只保留內部邏輯以供未來使用）
