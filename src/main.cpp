@@ -654,7 +654,7 @@ void setup() {
     USBSerial.println("[INFO] 正在初始化 BLE...");
     statusLED.update();  // Update LED during initialization
 
-    BLEDevice::init("ESP32-S3 Motor Control");
+    BLEDevice::init("BillCat_Fan_Control");
     pBLEServer = BLEDevice::createServer();
     pBLEServer->setCallbacks(new MyServerCallbacks());
 
@@ -690,7 +690,7 @@ void setup() {
 
     USBSerial.println("[INFO] BLE 初始化完成");
     USBSerial.println("\nBluetooth 資訊:");
-    USBSerial.println("  BLE 裝置名稱: ESP32_S3_Console");
+    USBSerial.println("  BLE 裝置名稱: BillCat_Fan_Control");
     USBSerial.println("=================================");
     USBSerial.print("\n> ");
 

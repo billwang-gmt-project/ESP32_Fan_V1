@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Motor Control Dashboard</title>
+    <title>BillCat Fan Control Dashboard</title>
     <!-- 版本標記: v2.1 - 2025-11-04 - Added adjustable RPM chart update rate (20ms-200ms) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -640,16 +640,16 @@
         <!-- Navigation Bar -->
         <div class="navigation-bar">
             <div class="nav-links">
-                <a href="/index.html" class="nav-link active" data-i18n="dashboard">Dashboard</a>
                 <a href="/peripherals.html" class="nav-link">⚙️ Peripherals</a>
                 <a href="/settings.html" class="nav-link" data-i18n="settings">Settings</a>
+                <a href="/console.html" class="nav-link">🖥️ Console</a>
             </div>
         </div>
 
         <div class="container">
             <div class="header">
                 <div class="header-content">
-                    <h1 class="title" id="pageTitle">ESP32 Motor Control</h1>
+                    <h1 class="title" id="pageTitle">BillCat Fan Control</h1>
                     <p class="subtitle" id="pageSubtitle">PWM & RPM Monitor</p>
                 </div>
             
@@ -1972,7 +1972,7 @@
                 }
                 
                 // Update page title and subtitle
-                elements.pageTitle.textContent = data.title || 'ESP32 Motor Control';
+                elements.pageTitle.textContent = data.title || 'BillCat Fan Control';
                 elements.pageSubtitle.textContent = data.subtitle || 'PWM & RPM Monitor';
 
                 // Update firmware version

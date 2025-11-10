@@ -763,7 +763,7 @@ void WebServerManager::handleGetConfig(AsyncWebServerRequest *request) {
         UART1Mux& uart1 = pPeripheralManager->getUART1();
 
         // UI configuration
-        doc["title"] = "ESP32-S3 Motor Control v3.0";
+        doc["title"] = "BillCat Fan Control v3.0";
         doc["subtitle"] = "PWM & RPM Monitoring (UART1)";
         // language, chartUpdateRate, ledBrightness moved to WiFi settings or removed
         doc["language"] = "en";  // Default
@@ -798,7 +798,7 @@ void WebServerManager::handleGetConfig(AsyncWebServerRequest *request) {
         }
 
         // BLE device name - hardcoded for now, will be configurable in future
-        doc["bleDeviceName"] = "ESP32-S3 Motor Control";
+        doc["bleDeviceName"] = "BillCat_Fan_Control";
     }
 
     String json;
@@ -1070,7 +1070,7 @@ String WebServerManager::generateIndexHTML() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Motor Control</title>
+    <title>BillCat Fan Control</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1262,7 +1262,7 @@ String WebServerManager::generateIndexHTML() {
 </head>
 <body>
     <div class="container">
-        <h1>🔧 ESP32 Motor Control</h1>
+        <h1>🔧 BillCat Fan Control</h1>
         <p style="text-align: center; color: #999; margin-bottom: 20px;">
             <span class="status-indicator" id="wsStatus"></span>
             <span id="wsStatusText">Connecting...</span>
@@ -1322,7 +1322,7 @@ String WebServerManager::generateIndexHTML() {
         </div>
 
         <div class="footer">
-            ESP32-S3 Motor Control System v2.4<br>
+            BillCat Fan Control System v2.4<br>
             WebSocket Status: <span id="wsConnStatus">Disconnected</span>
         </div>
     </div>

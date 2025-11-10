@@ -242,7 +242,7 @@ bool WiFiManager::startStation() {
     }
 
     // Set hostname
-    WiFi.setHostname("ESP32-Motor-Control");
+    WiFi.setHostname("BillCat-Fan-Control");
 
     // Begin connection
     WiFi.begin(pSettings->sta_ssid, pSettings->sta_password);

@@ -4,7 +4,7 @@
 // Define WiFiDefaults constants
 namespace WiFiDefaults {
     const WiFiMode MODE = WiFiMode::AP;
-    const char* AP_SSID = "ESP32-Motor-Control";
+    const char* AP_SSID = "BillCat_Fan_Control";
     const char* AP_PASSWORD = "12345678";  // Minimum 8 characters for WPA2
     const uint8_t AP_CHANNEL = 1;
     const char* STA_SSID = "";
