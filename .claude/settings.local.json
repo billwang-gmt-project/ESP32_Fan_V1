@@ -51,7 +51,8 @@
       "mcp__desktop-commander__stop_search",
       "Bash(pip show:*)",
       "Bash(timeout 45 python:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []
