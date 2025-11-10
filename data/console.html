@@ -158,8 +158,62 @@
             color: rgba(0, 255, 136, 0.3);
         }
 
+        .console-input-wrapper {
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            background: rgba(0, 0, 0, 0.5);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            max-height: 250px;
+        }
+
+        .console-input-area {
+            display: flex;
+            gap: 5px;
+            padding: 10px;
+            flex-shrink: 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .command-history {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #88ccff;
+            background: rgba(0, 0, 0, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .history-item {
+            padding: 3px 5px;
+            margin: 2px 0;
+            background: rgba(0, 255, 136, 0.05);
+            border-left: 2px solid rgba(0, 255, 136, 0.3);
+            cursor: pointer;
+            border-radius: 2px;
+            transition: all 0.2s ease;
+        }
+
+        .history-item:hover {
+            background: rgba(0, 255, 136, 0.15);
+            border-left-color: rgba(0, 255, 136, 0.7);
+            padding-left: 8px;
+        }
+
+        .history-label {
+            font-size: 11px;
+            color: #888;
+            padding: 5px 10px 3px 10px;
+            margin: 0;
+            text-transform: uppercase;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
         /* Scrollbar styling */
-        .console-output::-webkit-scrollbar {
+        .console-output::-webkit-scrollbar,
+        .command-history::-webkit-scrollbar {
             width: 8px;
         }
 
@@ -321,11 +375,17 @@
                 <div class="console-line"></div>
             </div>
 
-            <div class="console-input-area">
-                <span class="console-prompt">></span>
-                <input type="text" class="console-input" id="commandInput"
-                       placeholder="輸入命令並按 Enter..."
-                       autocomplete="off">
+            <div class="console-input-wrapper">
+                <div class="console-input-area">
+                    <span class="console-prompt">></span>
+                    <input type="text" class="console-input" id="commandInput"
+                           placeholder="輸入命令並按 Enter..."
+                           autocomplete="off">
+                </div>
+                <div class="command-history" id="commandHistory">
+                    <div class="history-label">📜 命令歷史</div>
+                    <div id="historyItems"></div>
+                </div>
             </div>
         </div>
 
@@ -523,6 +583,9 @@
             }
             historyIndex = -1;
 
+            // 更新歷史顯示
+            updateHistoryDisplay();
+
             // 在控制台顯示命令
             addConsoleLine('> ' + command, 'command');
 
@@ -535,6 +598,30 @@
 
             // 清空輸入框
             input.value = '';
+        }
+
+        // 更新命令歷史顯示
+        function updateHistoryDisplay() {
+            const historyContainer = document.getElementById('historyItems');
+            historyContainer.innerHTML = '';
+
+            // 反向顯示歷史（最新的在最上面）
+            for (let i = commandHistory.length - 1; i >= Math.max(0, commandHistory.length - 10); i--) {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.textContent = commandHistory[i];
+                item.onclick = () => {
+                    document.getElementById('commandInput').value = commandHistory[i];
+                    document.getElementById('commandInput').focus();
+                };
+                historyContainer.appendChild(item);
+            }
+
+            // 自動滾動到底部（顯示最新的命令）
+            const historyPanel = document.getElementById('commandHistory');
+            if (historyPanel) {
+                historyPanel.scrollTop = historyPanel.scrollHeight;
+            }
         }
 
         // 顯示上一個命令
