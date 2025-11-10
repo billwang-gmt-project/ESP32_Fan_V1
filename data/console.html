@@ -164,7 +164,7 @@
             flex-shrink: 0;
             background: rgba(0, 0, 0, 0.5);
             border-top: 1px solid rgba(255, 255, 255, 0.1);
-            max-height: 250px;
+            height: 150px;
         }
 
         .console-input-area {
@@ -173,17 +173,54 @@
             padding: 10px;
             flex-shrink: 0;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            align-items: flex-start;
         }
 
-        .command-history {
+        .console-input-field {
             flex: 1;
-            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .console-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #00ff88;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            outline: none;
+            caret-color: #00ff88;
+            resize: none;
             overflow-y: auto;
-            font-size: 12px;
-            line-height: 1.5;
-            color: #88ccff;
-            background: rgba(0, 0, 0, 0.3);
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            line-height: 1.4;
+            padding: 5px;
+            min-height: 100px;
+        }
+
+        .console-buttons {
+            display: flex;
+            gap: 5px;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .clear-button {
+            padding: 6px 12px;
+            background: rgba(255, 68, 85, 0.2);
+            border: 1px solid rgba(255, 68, 85, 0.5);
+            color: #ff4455;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .clear-button:hover {
+            background: rgba(255, 68, 85, 0.4);
+            box-shadow: 0 0 8px rgba(255, 68, 85, 0.3);
         }
 
         .history-item {
@@ -194,6 +231,7 @@
             cursor: pointer;
             border-radius: 2px;
             transition: all 0.2s ease;
+            display: none;
         }
 
         .history-item:hover {
@@ -209,6 +247,11 @@
             margin: 0;
             text-transform: uppercase;
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: none;
+        }
+
+        .command-history {
+            display: none;
         }
 
         /* Scrollbar styling */
@@ -378,9 +421,17 @@
             <div class="console-input-wrapper">
                 <div class="console-input-area">
                     <span class="console-prompt">></span>
-                    <input type="text" class="console-input" id="commandInput"
-                           placeholder="輸入命令並按 Enter..."
-                           autocomplete="off">
+                    <div class="console-input-field">
+                        <textarea class="console-input" id="commandInput"
+                                placeholder="輸入命令並按 Ctrl+Enter 發送 (或 Enter 在新行)..."
+                                autocomplete="off"
+                                rows="5"></textarea>
+                    </div>
+                    <div class="console-buttons">
+                        <button class="clear-button" onclick="sendCommand()" title="發送命令">📤 發送</button>
+                        <button class="clear-button" onclick="clearCommandBox()" title="清除命令框">🗑️ 清除</button>
+                        <button class="clear-button" onclick="clearConsoleOutput()" title="清除輸出">✕ 清出力</button>
+                    </div>
                 </div>
                 <div class="command-history" id="commandHistory">
                     <div class="history-label">📜 命令歷史</div>
@@ -465,6 +516,9 @@
             input.addEventListener('keyup', handleKeyUp);
 
             connectWebSocket();
+
+            // 初始化命令歷史顯示
+            updateHistoryDisplay();
         });
 
         // WebSocket 連接
@@ -548,15 +602,27 @@
 
         // 處理鍵盤按下
         function handleKeyDown(event) {
-            if (event.key === 'Enter') {
+            // Ctrl+Enter 或 Cmd+Enter 發送命令
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
                 event.preventDefault();
                 sendCommand();
-            } else if (event.key === 'ArrowUp') {
-                event.preventDefault();
-                showPreviousCommand();
-            } else if (event.key === 'ArrowDown') {
-                event.preventDefault();
-                showNextCommand();
+            }
+            // 普通 Enter 允許換行（不預設）
+            // ArrowUp/Down 用於命令歷史（僅在單行情況下）
+            else if (event.key === 'ArrowUp' && !event.shiftKey && !event.ctrlKey && !event.altKey) {
+                // 只在光標在第一行時回溯歷史
+                const input = event.target;
+                if (input.selectionStart === 0 && !input.value.includes('\n')) {
+                    event.preventDefault();
+                    showPreviousCommand();
+                }
+            } else if (event.key === 'ArrowDown' && !event.shiftKey && !event.ctrlKey && !event.altKey) {
+                // 只在光標在最後一行時向前翻歷史
+                const input = event.target;
+                if (input.selectionStart === input.value.length && !input.value.includes('\n')) {
+                    event.preventDefault();
+                    showNextCommand();
+                }
             }
         }
 
@@ -568,68 +634,77 @@
         // 發送命令
         function sendCommand() {
             const input = document.getElementById('commandInput');
-            const command = input.value.trim();
+            // 取第一行作為命令（支持多行）
+            const fullText = input.value.trim();
+            const lines = fullText.split('\n').filter(line => line.trim());
 
-            if (command.length === 0) {
+            if (lines.length === 0) {
                 return;
             }
 
-            console.log('[DEBUG] 發送命令:', command);
+            // 逐行發送命令
+            lines.forEach(command => {
+                command = command.trim();
+                if (command.length === 0) return;
 
-            // 添加到歷史記錄
-            commandHistory.push(command);
-            if (commandHistory.length > MAX_HISTORY) {
-                commandHistory.shift();
-            }
-            historyIndex = -1;
+                console.log('[DEBUG] 發送命令:', command);
 
-            // 更新歷史顯示
-            updateHistoryDisplay();
-
-            // 在控制台顯示命令
-            addConsoleLine('> ' + command, 'command');
-
-            // 發送命令
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                console.log('[DEBUG] WebSocket 狀態: OPEN, 準備發送...');
-                try {
-                    ws.send(command);
-                    console.log('[DEBUG] 命令已發送到 WebSocket');
-                } catch (e) {
-                    console.error('[DEBUG] 發送失敗:', e);
-                    addConsoleLine('✗ 發送失敗: ' + e.message, 'error');
+                // 添加到歷史記錄
+                commandHistory.push(command);
+                if (commandHistory.length > MAX_HISTORY) {
+                    commandHistory.shift();
                 }
-            } else {
-                console.log('[DEBUG] WebSocket 狀態異常, readyState=' + (ws ? ws.readyState : 'undefined'));
-                addConsoleLine('✗ 未連接到設備', 'error');
-            }
+                historyIndex = -1;
+
+                // 更新歷史顯示
+                updateHistoryDisplay();
+
+                // 在控制台顯示命令
+                addConsoleLine('> ' + command, 'command');
+
+                // 發送命令
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    console.log('[DEBUG] WebSocket 狀態: OPEN, 準備發送...');
+                    try {
+                        ws.send(command);
+                        console.log('[DEBUG] 命令已發送到 WebSocket');
+                    } catch (e) {
+                        console.error('[DEBUG] 發送失敗:', e);
+                        addConsoleLine('✗ 發送失敗: ' + e.message, 'error');
+                    }
+                } else {
+                    console.log('[DEBUG] WebSocket 狀態異常, readyState=' + (ws ? ws.readyState : 'undefined'));
+                    addConsoleLine('✗ 未連接到設備', 'error');
+                }
+            });
 
             // 清空輸入框
             input.value = '';
+            input.focus();
         }
 
-        // 更新命令歷史顯示
+        // 清除命令框
+        function clearCommandBox() {
+            const input = document.getElementById('commandInput');
+            input.value = '';
+            input.focus();
+            console.log('[DEBUG] 已清除命令框');
+        }
+
+        // 清除輸出
+        function clearConsoleOutput() {
+            const output = document.getElementById('consoleOutput');
+            output.innerHTML = '';
+            messageCount = 0;
+            document.getElementById('messageCount').textContent = '0';
+            console.log('[DEBUG] 已清除輸出框');
+            addConsoleLine('✓ 已清除輸出', 'response');
+        }
+
+        // 更新命令歷史顯示（已隱藏，只保留內部邏輯以供未來使用）
         function updateHistoryDisplay() {
-            const historyContainer = document.getElementById('historyItems');
-            historyContainer.innerHTML = '';
-
-            // 反向顯示歷史（最新的在最上面）
-            for (let i = commandHistory.length - 1; i >= Math.max(0, commandHistory.length - 10); i--) {
-                const item = document.createElement('div');
-                item.className = 'history-item';
-                item.textContent = commandHistory[i];
-                item.onclick = () => {
-                    document.getElementById('commandInput').value = commandHistory[i];
-                    document.getElementById('commandInput').focus();
-                };
-                historyContainer.appendChild(item);
-            }
-
-            // 自動滾動到底部（顯示最新的命令）
-            const historyPanel = document.getElementById('commandHistory');
-            if (historyPanel) {
-                historyPanel.scrollTop = historyPanel.scrollHeight;
-            }
+            // 命令歷史框已隱藏，但保留函數以供未來功能使用
+            // 如需顯示命令歷史，可在 CSS 中改為 display: flex 或在此添加其他邏輯
         }
 
         // 顯示上一個命令
