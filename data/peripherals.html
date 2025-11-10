@@ -454,11 +454,11 @@
                     <div id="uart1PwmControls" style="display: none;">
                         <div class="control-group">
                             <label class="control-label">PWM Frequency (Hz): <span id="uart1FreqDisplay">1000</span></label>
-                            <input type="range" id="uart1Freq" class="slider" min="1" max="500000" value="1000" step="1">
+                            <input type="range" id="uart1Freq" class="slider" min="1" max="500000" value="1000" step="1" oninput="document.getElementById('uart1FreqDisplay').textContent = this.value" onchange="sendUART1PWMViaWebSocket()">
                         </div>
                         <div class="control-group">
                             <label class="control-label">PWM Duty (%): <span id="uart1DutyDisplay">50.0</span></label>
-                            <input type="range" id="uart1Duty" class="slider" min="0" max="100" value="50" step="0.1">
+                            <input type="range" id="uart1Duty" class="slider" min="0" max="100" value="50" step="0.1" oninput="document.getElementById('uart1DutyDisplay').textContent = parseFloat(this.value).toFixed(1)" onchange="sendUART1PWMViaWebSocket()">
                         </div>
                         <div class="control-group">
                             <label class="control-label">
@@ -653,10 +653,7 @@
         let updateInterval = null;
         let userChangingMode = false;  // Flag to prevent auto-sync during user interaction
         let ws = null;  // WebSocket connection for real-time PWM sync
-        let isEditingUART1Freq = false;  // Track if user is editing freq
-        let isEditingUART1Duty = false;  // Track if user is editing duty
-        let uart1FreqTimeout = null;
-        let uart1DutyTimeout = null;
+        let isSliderBeingDragged = false;  // Track if user is dragging UART1 PWM sliders
 
         // Initialize WebSocket for real-time sync with other pages
         function initWebSocket() {
@@ -666,8 +663,9 @@
                 try {
                     const data = JSON.parse(event.data);
                     if (data.type === 'status') {
-                        // Only update UART1 PWM if not currently editing
-                        if (data.uart1 && !isEditingUART1Freq && !isEditingUART1Duty) {
+                        // Update UART1 PWM display with current values from server
+                        // But NOT while user is dragging the sliders
+                        if (data.uart1 && !isSliderBeingDragged) {
                             if (data.uart1.pwm_freq !== undefined) {
                                 document.getElementById('uart1Freq').value = data.uart1.pwm_freq;
                                 document.getElementById('uart1FreqDisplay').textContent = data.uart1.pwm_freq;
@@ -696,49 +694,22 @@
             startAutoUpdate();
         });
 
+        function sendUART1PWMViaWebSocket() {
+            // Only send when slider is released (onchange event)
+            const freq = parseInt(document.getElementById('uart1Freq').value);
+            const duty = parseFloat(document.getElementById('uart1Duty').value);
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Send frequency
+                ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
+                // Send duty
+                ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
+            }
+        }
+
         function initializeControls() {
-            // UART1 sliders - send commands via WebSocket for real-time sync
-            document.getElementById('uart1Freq').addEventListener('input', function() {
-                const freq = parseInt(this.value);
-                document.getElementById('uart1FreqDisplay').textContent = freq;
-
-                // Set editing flag and send command
-                isEditingUART1Freq = true;
-                clearTimeout(uart1FreqTimeout);
-
-                // Send via WebSocket with debouncing
-                uart1FreqTimeout = setTimeout(() => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
-                    }
-                }, 100);
-
-                // Reset editing flag after timeout
-                setTimeout(() => {
-                    isEditingUART1Freq = false;
-                }, 250);
-            });
-
-            document.getElementById('uart1Duty').addEventListener('input', function() {
-                const duty = parseFloat(this.value);
-                document.getElementById('uart1DutyDisplay').textContent = duty.toFixed(1);
-
-                // Set editing flag and send command
-                isEditingUART1Duty = true;
-                clearTimeout(uart1DutyTimeout);
-
-                // Send via WebSocket with debouncing
-                uart1DutyTimeout = setTimeout(() => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
-                    }
-                }, 100);
-
-                // Reset editing flag after timeout
-                setTimeout(() => {
-                    isEditingUART1Duty = false;
-                }, 250);
-            });
+            // UART1 sliders - just update display on input, send on change
+            // (onchange and oninput are now set in HTML)
 
             // Buzzer sliders
             document.getElementById('buzzerFreq').addEventListener('input', function() {
@@ -1110,6 +1081,26 @@
             })
             .catch(error => showAlert('Network error: ' + error.message, 'error'));
         }
+
+        // Setup UART1 PWM slider drag tracking to prevent broadcast interference
+        document.addEventListener('DOMContentLoaded', function() {
+            const uart1FreqSlider = document.getElementById('uart1Freq');
+            const uart1DutySlider = document.getElementById('uart1Duty');
+
+            if (uart1FreqSlider) {
+                uart1FreqSlider.addEventListener('pointerdown', () => { isSliderBeingDragged = true; });
+                uart1FreqSlider.addEventListener('pointerup', () => { isSliderBeingDragged = false; });
+                uart1FreqSlider.addEventListener('touchstart', () => { isSliderBeingDragged = true; });
+                uart1FreqSlider.addEventListener('touchend', () => { isSliderBeingDragged = false; });
+            }
+
+            if (uart1DutySlider) {
+                uart1DutySlider.addEventListener('pointerdown', () => { isSliderBeingDragged = true; });
+                uart1DutySlider.addEventListener('pointerup', () => { isSliderBeingDragged = false; });
+                uart1DutySlider.addEventListener('touchstart', () => { isSliderBeingDragged = true; });
+                uart1DutySlider.addEventListener('touchend', () => { isSliderBeingDragged = false; });
+            }
+        }, { once: true });  // Execute only once after first load
     </script>
 </body>
 </html>

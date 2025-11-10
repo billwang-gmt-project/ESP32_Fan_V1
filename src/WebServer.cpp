@@ -1314,7 +1314,7 @@ String WebServerManager::generateIndexHTML() {
 
             <div class="control-group">
                 <label for="dutySlider">PWM Duty Cycle: <span id="dutyDisplay">0%</span></label>
-                <input type="range" id="dutySlider" min="0" max="100" value="0" step="0.1" oninput="updateDutyDisplay(); setDuty()">
+                <input type="range" id="dutySlider" min="0" max="100" value="0" step="0.1" oninput="updateDutyDisplay()" onchange="setDuty()">
             </div>
 
             <button class="btn-danger" onclick="emergencyStop()">⛔ EMERGENCY STOP</button>
@@ -1330,12 +1330,7 @@ String WebServerManager::generateIndexHTML() {
     <script>
         let ws;
         let reconnectInterval;
-        let dutySliderTimeout;  // 防止廣播重置正在編輯的滑杆值
-        let freqInputTimeout;   // 防止廣播重置正在編輯的頻率值
-        let isEditingDuty = false;  // 用戶正在編輯 duty 滑杆
-        let isEditingFreq = false;  // 用戶正在編輯 frequency 輸入框
-        let dutySendTimeout;    // 防抖計時器（避免快速拖動時發送過多命令）
-        let freqSendTimeout;    // 防抖計時器
+        let isSliderBeingDragged = false;  // Track if user is currently dragging slider
 
         function connectWebSocket() {
             ws = new WebSocket('ws://' + window.location.hostname + '/ws');
@@ -1382,15 +1377,15 @@ String WebServerManager::generateIndexHTML() {
                 }
                 if (data.freq !== undefined) {
                     document.getElementById('pwmFreq').textContent = data.freq + ' Hz';
-                    // 只在用戶沒有正在編輯時更新頻率輸入框
-                    if (!isEditingFreq) {
+                    // 不要在拖動時更新頻率輸入框
+                    if (!isSliderBeingDragged) {
                         document.getElementById('freqInput').value = data.freq;
                     }
                 }
                 if (data.duty !== undefined) {
                     document.getElementById('pwmDuty').textContent = data.duty.toFixed(1) + '%';
-                    // 只在用戶沒有正在編輯時更新滑杆值
-                    if (!isEditingDuty) {
+                    // 不要在拖動時更新滑杆 - 這樣使用者體感才好
+                    if (!isSliderBeingDragged) {
                         document.getElementById('dutySlider').value = data.duty;
                         document.getElementById('dutyDisplay').textContent = data.duty.toFixed(1) + '%';
                     }
@@ -1421,26 +1416,10 @@ String WebServerManager::generateIndexHTML() {
         function setFrequency() {
             const freq = parseInt(document.getElementById('freqInput').value);
             if (freq >= 10 && freq <= 500000) {
-                // 設置正在編輯標誌，防止廣播重置值
-                isEditingFreq = true;
-
-                // 清除之前的防抖計時器
-                clearTimeout(freqSendTimeout);
-
-                // 防抖：100ms 內不會發送多個命令
-                freqSendTimeout = setTimeout(function() {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
-                    }
-                }, 100);
-
-                // 清除之前的編輯標誌計時器
-                clearTimeout(freqInputTimeout);
-
-                // 250ms 後允許廣播重置值（因為伺服器不再立即廣播）
-                freqInputTimeout = setTimeout(function() {
-                    isEditingFreq = false;
-                }, 250);
+                // 頻率輸入框改變時發送命令
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({cmd: 'set_freq', value: freq}));
+                }
             } else {
                 alert('Frequency must be between 10 and 500000 Hz');
             }
@@ -1449,27 +1428,10 @@ String WebServerManager::generateIndexHTML() {
         function setDuty() {
             const duty = parseFloat(document.getElementById('dutySlider').value);
 
-            // 設置正在編輯標誌，防止廣播重置值
-            isEditingDuty = true;
-
-            // 清除之前的防抖計時器
-            clearTimeout(dutySendTimeout);
-
-            // 防抖：100ms 內不會發送多個命令（避免快速拖動時發送過多）
-            dutySendTimeout = setTimeout(function() {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
-                }
-            }, 100);
-
-            // 清除之前的編輯標誌計時器
-            clearTimeout(dutySliderTimeout);
-
-            // 250ms 後允許廣播重置值（因為伺服器不再立即廣播）
-            // 這個延遲只是為了讓用戶感覺更流暢，不會立即被廣播重置
-            dutySliderTimeout = setTimeout(function() {
-                isEditingDuty = false;
-            }, 250);
+            // 只在滑杆放開時發送命令（onchange 事件）
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({cmd: 'set_duty', value: duty}));
+            }
         }
 
         function emergencyStop() {
@@ -1504,6 +1466,32 @@ String WebServerManager::generateIndexHTML() {
             const duty = parseFloat(document.getElementById('dutySlider').value);
             document.getElementById('dutyDisplay').textContent = duty.toFixed(1) + '%';
         }
+
+        // Setup slider drag tracking
+        const dutySlider = document.getElementById('dutySlider');
+        const freqInput = document.getElementById('freqInput');
+
+        // Duty slider drag detection
+        dutySlider.addEventListener('pointerdown', function() {
+            isSliderBeingDragged = true;
+        });
+        dutySlider.addEventListener('pointerup', function() {
+            isSliderBeingDragged = false;
+        });
+        dutySlider.addEventListener('touchstart', function() {
+            isSliderBeingDragged = true;
+        });
+        dutySlider.addEventListener('touchend', function() {
+            isSliderBeingDragged = false;
+        });
+
+        // Frequency input focus/blur detection
+        freqInput.addEventListener('focus', function() {
+            isSliderBeingDragged = true;
+        });
+        freqInput.addEventListener('blur', function() {
+            isSliderBeingDragged = false;
+        });
 
         // Initialize
         connectWebSocket();
