@@ -331,14 +331,9 @@ bool UART1Mux::setPWMDuty(float duty) {
 }
 
 bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
-    // ==== ENTRY DEBUG ====
-    // 讀取當前register
-    uint32_t cfg0_before = MCPWM1.timer[0].timer_cfg0.val;
-
     Serial.printf("[UART1] 🚀 setPWMFrequencyAndDuty() ENTRY: freq=%u Hz, duty=%.1f%%\n", frequency, duty);
     Serial.printf("[UART1] 📊 Current: prescaler=%u, period=%u, freq=%u, duty=%.1f\n",
                      pwmPrescaler, pwmPeriod, pwmFrequency, pwmDuty);
-    Serial.printf("[UART1] 📖 Register BEFORE: cfg0=0x%08X\n", cfg0_before);
     Serial.flush();
 
     if (currentMode != MODE_PWM_RPM) {
@@ -360,44 +355,41 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     // Mark PWM parameter change with GPIO12 toggle (non-blocking, glitch-free)
     outputPWMChangePulse();
 
-    // UNIFIED FREQUENCY UPDATE STRATEGY:
-    // For ALL frequency changes, use mcpwm_set_frequency() API
-    // This ensures proper synchronization and avoids hardware corruption from direct register writes
-    // Trade-off: May have a glitch during transition (acceptable for safer operation)
+    // DIRECT REGISTER UPDATE STRATEGY (Safer than deprecated API):
+    // The deprecated mcpwm_set_frequency() API has bugs that clear control bits
+    // We'll update period directly using the same method as initPWM()
 
-    Serial.printf("[UART1] 🚀 Using ESP-IDF mcpwm_set_frequency() for safe update: %u Hz\n", frequency);
+    Serial.printf("[UART1] 🚀 Updating PWM: %u Hz, %.1f%%\n", frequency, duty);
     Serial.flush();
 
-    // Call ESP-IDF API to set frequency
-    esp_err_t err_freq = mcpwm_set_frequency(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM, frequency);
-    if (err_freq != ESP_OK) {
-        Serial.printf("[UART1] ❌ PWM frequency set failed: %s\n", esp_err_to_name(err_freq));
+    // Calculate required period based on current prescaler
+    uint32_t target_ticks = 80000000 / frequency;
+    uint32_t new_period = target_ticks / pwmPrescaler;
+
+    // Check if period is in valid range
+    if (new_period < 2 || new_period > 65535) {
+        Serial.printf("[UART1] ❌ Period out of range: %u (must be 2-65535)\n", new_period);
         return false;
     }
 
-    // Call ESP-IDF API to set duty cycle
-    esp_err_t err_duty = mcpwm_set_duty(MCPWM_UNIT_UART1_PWM, MCPWM_TIMER_UART1_PWM,
-                                        MCPWM_GEN_UART1_PWM, duty);
-    if (err_duty != ESP_OK) {
-        Serial.printf("[UART1] ❌ PWM duty set failed: %s\n", esp_err_to_name(err_duty));
-        return false;
-    }
+    Serial.printf("[UART1] 🔧 Direct register update: period %u → %u\n", pwmPeriod, new_period);
 
-    // CRITICAL: Read actual register values after mcpwm_set_frequency()
-    // ESP-IDF may use different prescaler/period calculation than ours!
-    uint32_t cfg0_actual = MCPWM1.timer[0].timer_cfg0.val;
-    uint32_t actual_prescaler_raw = (cfg0_actual & 0xFF);
-    uint32_t actual_period_raw = ((cfg0_actual >> 8) & 0xFFFF);     // bits [23:8]
+    // Read current register value to preserve all control bits
+    uint32_t cfg0_before = MCPWM1.timer[0].timer_cfg0.val;
+    Serial.printf("[UART1] 📖 cfg0_before=0x%08X\n", cfg0_before);
 
-    Serial.printf("[UART1] 📖 Register AFTER mcpwm_set_frequency(): cfg0=0x%08X\n", cfg0_actual);
-    Serial.printf("[UART1]    prescaler (bits[7:0])=%u (raw=0x%02X)\n",
-                 actual_prescaler_raw + 1, actual_prescaler_raw);
-    Serial.printf("[UART1]    period (bits[23:8])=%u (raw=0x%04X)\n",
-                 actual_period_raw + 1, actual_period_raw);
+    // Update ONLY the period bits[23:8], preserve all other bits including bit[24] and above
+    uint32_t cfg0_new = (cfg0_before & 0xFFFF00FF)  // Keep bits[31:24] and bits[7:0]
+                      | (((new_period - 1) & 0xFFFF) << 8);  // Write period to bits[23:8]
 
-    // Update stored values with ACTUAL register values (not calculated values!)
-    pwmPrescaler = actual_prescaler_raw + 1;
-    pwmPeriod = actual_period_raw + 1;
+    Serial.printf("[UART1] 🔧 Writing cfg0=0x%08X\n", cfg0_new);
+    MCPWM1.timer[0].timer_cfg0.val = cfg0_new;
+
+    // Verify write
+    uint32_t cfg0_after = MCPWM1.timer[0].timer_cfg0.val;
+    Serial.printf("[UART1] 📖 cfg0_after=0x%08X\n", cfg0_after);
+
+    // Update stored frequency and duty values
     pwmFrequency = frequency;
     pwmDuty = duty;
 
