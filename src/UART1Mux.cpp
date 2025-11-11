@@ -355,13 +355,6 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
     // Mark PWM parameter change with GPIO12 toggle (non-blocking, glitch-free)
     outputPWMChangePulse();
 
-    // DIRECT REGISTER UPDATE STRATEGY (Safer than deprecated API):
-    // The deprecated mcpwm_set_frequency() API has bugs that clear control bits
-    // We'll update period directly using the same method as initPWM()
-
-    Serial.printf("[UART1] 🚀 Updating PWM: %u Hz, %.1f%%\n", frequency, duty);
-    Serial.flush();
-
     // Calculate required period based on current prescaler
     uint32_t target_ticks = 80000000 / frequency;
     uint32_t new_period = target_ticks / pwmPrescaler;
@@ -372,26 +365,14 @@ bool UART1Mux::setPWMFrequencyAndDuty(uint32_t frequency, float duty) {
         return false;
     }
 
-    Serial.printf("[UART1] 🔧 Direct register update: period %u → %u\n", pwmPeriod, new_period);
+    Serial.printf("[UART1] 🚀 Updating PWM: %u Hz (period=%u), %.1f%% duty\n", frequency, new_period, duty);
+    Serial.flush();
 
-    // Read current register value to preserve all control bits
-    uint32_t cfg0_before = MCPWM1.timer[0].timer_cfg0.val;
-    Serial.printf("[UART1] 📖 cfg0_before=0x%08X\n", cfg0_before);
+    // Use the unified shadow register update function (glitch-free)
+    updatePWMRegistersDirectly(new_period, duty);
 
-    // Update ONLY the period bits[23:8], preserve all other bits including bit[24] and above
-    uint32_t cfg0_new = (cfg0_before & 0xFFFF00FF)  // Keep bits[31:24] and bits[7:0]
-                      | (((new_period - 1) & 0xFFFF) << 8);  // Write period to bits[23:8]
-
-    Serial.printf("[UART1] 🔧 Writing cfg0=0x%08X\n", cfg0_new);
-    MCPWM1.timer[0].timer_cfg0.val = cfg0_new;
-
-    // Verify write
-    uint32_t cfg0_after = MCPWM1.timer[0].timer_cfg0.val;
-    Serial.printf("[UART1] 📖 cfg0_after=0x%08X\n", cfg0_after);
-
-    // Update stored frequency and duty values
+    // Update stored frequency
     pwmFrequency = frequency;
-    pwmDuty = duty;
 
     Serial.printf("[UART1] ✅ PWM updated: %u Hz, %.1f%% (prescaler=%u, period=%u)\n",
                  frequency, duty, pwmPrescaler, pwmPeriod);
