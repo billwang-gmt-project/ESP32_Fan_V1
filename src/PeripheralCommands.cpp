@@ -146,17 +146,16 @@ void CommandParser::handleUART1PWM(const String& cmd, ICommandResponse* response
         response->printf("[CALC] Expected period for %u Hz (prescale=%u): %u\n",
                         freq, prescale_after+1, expected_period);
 
-        // 嘗試反向工程: 實際period是多少?
-        uint32_t period_high_only = (cfg0_after >> 16) & 0xFF;
-        uint32_t period_reconstructed = period_high_only << 8;  // bits[23:16] << 8
-        uint32_t actual_freq_from_period_high = 80000000 / ((prescale_after+1) * period_reconstructed);
-        response->printf("[REVERSE] Using period=(bits[23:16]<<8)=%u, freq would be: %u Hz\n",
-                        period_reconstructed, actual_freq_from_period_high);
+        // 嘗試反向工程: 實際period是多少? (使用正確的 bits[23:8])
+        uint32_t period_actual = (cfg0_after >> 8) & 0xFFFF;  // bits[23:8] - 正確的16-bit extraction
+        uint32_t actual_freq_calculated = 80000000 / ((prescale_after+1) * (period_actual + 1));
+        response->printf("[VERIFY] Using correct bits[23:8] period=%u, calculated freq: %u Hz ✓\n",
+                        period_actual + 1, actual_freq_calculated);
 
         // 計算實際MCPWM時鐘
-        uint32_t actual_mcpwm_clk = freq * (prescale_after+1) * period_reconstructed;
-        response->printf("[CLOCK] If freq=%u and period=%u, MCPWM_CLK must be: %u Hz (%.1f MHz)\n",
-                        freq, period_reconstructed, actual_mcpwm_clk, actual_mcpwm_clk/1000000.0f);
+        uint32_t actual_mcpwm_clk = actual_freq_calculated * (prescale_after+1) * (period_actual + 1);
+        response->printf("[CLOCK] Frequency=%u Hz, prescale=%u, period=%u → MCPWM_CLK: %u Hz (%.1f MHz)\n",
+                        actual_freq_calculated, prescale_after+1, period_actual+1, actual_mcpwm_clk, actual_mcpwm_clk/1000000.0f);
 
         peripheralManager.getUART1().setPWMEnabled(enablePWM);
 
